@@ -1,0 +1,3 @@
+# The standard is a verbatim import of an externally approved document.
+# Pin its bytes: no end-of-line conversion, whatever core.autocrlf says locally.
+docs/ENG-STD-001.md -text
