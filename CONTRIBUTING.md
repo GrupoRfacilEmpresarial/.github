@@ -51,6 +51,48 @@ gh pr create --base develop
 `support/*` está **inactiva** hoy (sección 0.5): se activa si un cliente exige por contrato una
 línea antigua. Hasta entonces solo se soporta la línea vigente.
 
+## El back-merge, ahora que el merge es squash
+
+La tabla de arriba dice que `release/*` y `hotfix/*` vuelven a `main` **y** a `develop`. Eso sigue
+siendo obligatorio (secciones 12.2 paso 7 y 9.5 paso 6). Lo que cambió es **cómo** se hace.
+
+El ruleset de organización impone `squash` como único método de merge, más historia lineal, sobre
+`main` y `develop`. El merge sin fast-forward dejó de existir como opción. Si aplastás la misma
+rama por separado en las dos, te quedan dos commits distintos con el mismo contenido y las ramas
+divergen para siempre.
+
+**Qué hacer en su lugar.** Después de cada release o hotfix, abrí un PR de sincronía de `main`
+hacia `develop`:
+
+```bash
+git fetch origin
+git checkout -b feature/<ticket>-sync-main-develop origin/main
+git push -u origin feature/<ticket>-sync-main-develop
+gh pr create --base develop --head feature/<ticket>-sync-main-develop \
+  --title "chore(sync): baja a develop lo liberado en vX.Y.Z"
+```
+
+Se mergea con squash, como todo. Si trae conflictos —es lo esperable— resolvelos en la rama de
+sincronía mergeando `develop` adentro de ella: ese merge commit queda en la rama y el squash lo
+aplasta al entrar.
+
+**Cómo verificar que quedó.** No sirve `git log develop..main`: bajo squash nunca da vacío, porque
+los dos commits tienen el mismo contenido y distinto SHA. Tampoco sirve `git diff develop main`,
+que casi siempre trae trabajo de `develop` todavía sin liberar. Anclalo al tag y a los archivos que
+ese release tocó:
+
+```bash
+git fetch origin --tags
+git diff --stat origin/develop vX.Y.Z -- $(git diff --name-only vX.Y.Z~1 vX.Y.Z)
+```
+
+Vacío: lo que liberó el release ya está en `develop`. No vacío: esos archivos quedaron afuera,
+repetí la sincronía.
+
+Parece un trámite, pero es el paso que más se olvida, y la sección 9.5 lo llama **el error más
+común del proceso**. Un back-merge omitido no falla en el momento: simplemente el próximo release
+vuelve a empaquetar código que ya se había reemplazado.
+
 ## Prohibido
 
 | Qué | Por qué |
