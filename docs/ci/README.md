@@ -14,6 +14,7 @@ Workflows reutilizables y plantillas que implementan las secciones 12.6, 13.5 y 
 | `ci-python.yml` | ruff, mypy, pytest con umbral, integración contra Postgres efímero, pip-audit | 13.5 |
 | `container-release.yml` | versión SemVer desde la ref, imagen inmutable en GHCR, **build once / promote** | 12.2, 12.4, 12.6.2 |
 | `deploy-vps.yml` | despliegue por versión con docker compose, sondeo de salud, verificación de `GET /version`, registro de despliegue | 12.6.5, 16.2 |
+| `deploy-iis.yml` | despliegue por versión a Windows Server con IIS, sin contenedores: swap de junction, smoke test, rollback automático ([guía](iis.md)) | 12.6.5, 16.2 |
 
 Plantillas (aparecen en *Actions → New workflow* de cualquier repo del org):
 
@@ -84,8 +85,8 @@ Ya **no** se publican tags móviles `develop`/`qa`/`prod`.
   nginx. Mientras tanto, registrar excepción a 12.6.2 regla 1.
 - Los repos con deploy a IIS en runner Windows (`AMEX_MULTIVA_FRONT`, `SHK_FRONT`,
   `SUITE_FRONT`, `NewCreacionPDFCrystal`) adoptan `gobierno-pr.yml` y `ci-node.yml`/
-  `ci-dotnet.yml` para la calidad; su deploy queda fuera de estas plantillas hasta definir un
-  `deploy-iis.yml` equivalente (artefacto versionado, no rama).
+  `ci-dotnet.yml` para la calidad, y `container-release.yml` más `deploy-iis.yml` para el
+  despliegue (artefacto versionado, no rama). Ver [`iis.md`](iis.md).
 
 ## Versionado de estos workflows
 
