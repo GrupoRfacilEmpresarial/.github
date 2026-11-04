@@ -87,9 +87,10 @@ function Copy-Package([string]$From, [string]$To, [string[]]$SkipFiles, [string[
 }
 
 function Remove-Release([string]$Path) {
-  # PersistDirs are junctions inside a release. Unlink every junction first, without walking into
-  # it, so that the recursive delete (which in Windows PowerShell 5.1 can follow a junction) can
-  # never reach the shared data it points at.
+  # A release can be a junction itself (made by hand), and PersistDirs are junctions inside it. Unlink
+  # every junction without walking into it: the recursive delete below (in Windows PowerShell 5.1 it
+  # can follow a junction) must never reach the data a junction points at.
+  if (Test-IsJunction $Path) { Remove-Junction $Path; return }
   $pending = New-Object Collections.Generic.Queue[string]
   $pending.Enqueue($Path)
   while ($pending.Count) {
@@ -101,11 +102,10 @@ function Remove-Release([string]$Path) {
 }
 
 function Select-ReleasesToPrune([string[]]$Names, [string[]]$Protected, [int]$Keep) {
-  # Only folders named <version>_<14 digits> are ours. The newest $Keep and the protected ones
-  # (live and previous) stay; anything else in the folder is never touched. legacy_<stamp> is the
-  # only copy of a folder as it was before the first deploy: it is never pruned, an operator
-  # removes it by hand once it is no longer needed.
-  $ours = @($Names | Where-Object { $_ -match '_\d{14}$' -and $_ -notlike 'legacy_*' } | Sort-Object { $_.Substring($_.Length - 14) } -Descending)
+  # Only folders named <version>_<14 digits> are ours; anything else is never touched, including
+  # legacy_<stamp>, the only copy of a folder as it was before the first deploy (removed by hand).
+  # The newest $Keep and the protected ones (live and previous) stay.
+  $ours = @($Names | Where-Object { $_ -match '^[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc)\.[0-9A-Za-z.]+)?_\d{14}\z' } | Sort-Object { $_.Substring($_.Length - 14) } -Descending)
   $stay = @($Protected) + @($ours | Select-Object -First $Keep)
   return @($ours | Where-Object { $stay -notcontains $_ })
 }
