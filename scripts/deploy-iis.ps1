@@ -278,8 +278,9 @@ function Invoke-Deploy {
     throw "'$dest' is a real folder: the first deploy needs SiteName to stop the site and turn the folder into a junction."
   }
   if ($migrating -and $Kind -ne 'service') {  # a mistyped DestPath must not rename a folder the site does not serve
-    $served = [Environment]::ExpandEnvironmentVariables("$(@(Invoke-AppCmd @('list', 'vdir', "$SiteName/", '/text:physicalPath'))[0])".Trim()).TrimEnd('\')
-    if ($served -ne $dest) { throw "The root of site '$SiteName' is '$served', not '$dest': refusing to rename a folder the site does not serve." }
+    $line = @(Invoke-AppCmd @('list', 'vdir', "$SiteName/", '/text:physicalPath')) | Where-Object { $_ -is [string] -and $_.Trim() } | Select-Object -First 1
+    $served = [Environment]::ExpandEnvironmentVariables("$line".Trim())
+    if (-not $served -or [IO.Path]::GetFullPath($served).TrimEnd('\') -ne [IO.Path]::GetFullPath($dest).TrimEnd('\')) { throw "The root of site '$SiteName' is '$served', not '$dest': refusing to rename a folder the site does not serve." }
   }
 
   # 2. Build the release beside the live one. A failure here leaves the live release untouched.
@@ -342,7 +343,7 @@ function Invoke-Deploy {
     }
     if ($Kind -eq 'service') { Set-ServiceState $ServiceName 'stop' }
     if ($migrating) {
-      if ($SiteName) { Set-IisState 'site' $SiteName 'stop'; $siteStopped = $true }
+      if ($SiteName -and $Kind -ne 'service') { Set-IisState 'site' $SiteName 'stop'; $siteStopped = $true }  # a service has no site
       foreach ($d in $dirs) {  # keep the history of the real PersistDirs
         $old = Join-Path $dest $d
         if ((Test-Path -LiteralPath $old) -and -not (Test-IsJunction $old)) {
