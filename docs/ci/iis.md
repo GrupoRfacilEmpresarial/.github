@@ -147,9 +147,14 @@ ser la release anterior y no se toca. Con una carpeta real y `IIS_SITE_NAME` def
 primero comprueba, con `appcmd list vdir`, que la raíz del sitio sea justamente `IIS_DEST_PATH`:
 si apunta a otra carpeta (un error de tipeo, una carpeta padre) aborta sin cambiar nada. Luego
 detiene el sitio, renombra la carpeta a `<ruta>_releases\legacy_<fecha>` (es el destino del
-rollback) y crea la junction. Es una vez por sitio. Con `kind: service` no hace falta
-`IIS_SITE_NAME`: se detiene el servicio, se renombra la carpeta, se crea la junction y se arranca
-el servicio; si no vuelve a arrancar, la junction vuelve a apuntar a la carpeta original.
+rollback) y crea la junction. Es una vez por sitio. El chequeo solo mira la raíz de la aplicación
+raíz del sitio: para la carpeta de una subaplicación o de un directorio virtual hay que crear la
+junction a mano la primera vez (una junction que ya existe no pasa por el chequeo).
+
+Con `kind: service` no hace falta `IIS_SITE_NAME` y el script lo ignora: se detiene el servicio,
+se renombra la carpeta, se crea la junction y se arranca el servicio; si no vuelve a arrancar, la
+junction vuelve a apuntar a la carpeta original. Ese camino no tiene el chequeo de la ruta, porque
+un servicio no tiene sitio al que preguntar: hay que revisar `IIS_DEST_PATH` a mano.
 
 Dos detalles de esa primera vez. Si el rollback ocurre después de crear la junction,
 `IIS_DEST_PATH` queda como una junction hacia `legacy_<fecha>` y no como la carpeta real, y las
@@ -223,11 +228,13 @@ en un tag `workflows/vN` y rechaza una rama.
 **El primer tag.** El default de `org-ref` es `workflows/v1`, que no existe hasta que alguien lo
 crea. Cuando `main` ya tiene `deploy-iis.yml` y `scripts/deploy-iis.ps1`, hay que crearlo sobre
 el commit de `main` que contiene los dos: `git tag workflows/v1 <sha>` y
-`git push origin workflows/v1`. Mientras no exista, ningún caller puede ejecutar el workflow.
+`git push origin workflows/v1`. Mientras no exista, ningún caller que use el default de `org-ref`
+puede ejecutar el workflow (uno que fije un SHA completo en `uses:` y en `org-ref` sí).
 
-Después de fusionar un cambio al script se crea un tag nuevo (o se mueve `vN` solo para correcciones compatibles) y los callers apuntan a ese mismo
-tag en `uses:`. Los tags `workflows/*` conviene protegerlos con un ruleset: hoy cualquiera con
-permiso de escritura podría moverlos.
+Después de fusionar un cambio al script se crea un tag nuevo (o se mueve `vN` solo para
+correcciones compatibles) y los callers apuntan a ese mismo tag en `uses:`. Los tags
+`workflows/*` conviene protegerlos con un ruleset: hoy cualquiera con permiso de escritura podría
+moverlos.
 
 ## Fuera de esta versión
 
