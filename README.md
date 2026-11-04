@@ -14,6 +14,11 @@ Revisiones**, v1.4.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs
 | `.github/PULL_REQUEST_TEMPLATE.md` | Plantilla de PR (Anexo D) | Sí, a todos los repos privados del org |
 | `CONTRIBUTING.md` | Reglas de ramas y flujo de trabajo (sección 12.1) | Sí |
 | `.github/workflows/conventional-commits.yml` | Workflow reutilizable que valida la sección 7 | No, se invoca |
+| `.github/workflows/pr-checks.yml` | Gobierno del PR: título, `semver:*`, CHANGELOG, rama, tamaño, secretos | No, se invoca |
+| `.github/workflows/ci-dotnet.yml`, `ci-node.yml`, `ci-python.yml` | Calidad por stack (sección 13.5) | No, se invoca |
+| `.github/workflows/container-release.yml`, `deploy-vps.yml` | Build once / promote y despliegue por versión (sección 12.6) | No, se invoca |
+| `workflow-templates/` | Plantillas listas para copiar por tipo de proyecto | Aparecen en *Actions → New workflow* |
+| `docs/ci/` | Guía de adopción de CI/CD | — |
 | `templates/CONTRACT.md` | Plantilla de contrato público (Anexo B) | No, se copia |
 | `templates/CHANGELOG.md` | Plantilla de changelog (Anexo C) | No, se copia |
 | `templates/commitlint.config.js` | Config opcional, solo para repos con Node | No, se copia |
@@ -32,6 +37,11 @@ jobs:
   conventional:
     uses: GrupoRfacilEmpresarial/.github/.github/workflows/conventional-commits.yml@main
 ```
+
+## CI/CD estándar por tipo de proyecto
+
+Ver [`docs/ci/README.md`](docs/ci/README.md): workflows reutilizables para .NET, React/Node y
+Python, y plantillas en `workflow-templates/`.
 
 ## Nivel de cumplimiento
 
