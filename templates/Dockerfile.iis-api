@@ -1,0 +1,32 @@
+# syntax=docker/dockerfile:1
+# Artefacto de una API .NET para deploy-iis.yml (kind: api). Copiar a la raiz del repo como
+# `Dockerfile.iis` y publicarlo con container-release.yml (ver docs/ci/iis.md):
+#
+#   with:
+#     images: '[{"name":"","dockerfile":"Dockerfile.iis","build-args":"PROJECT=src/Api/Api.csproj"}]'
+#
+# La imagen no se ejecuta: termina en `FROM scratch` con la salida de `dotnet publish` en la raiz.
+# deploy-iis.yml la baja con `crane export` y copia esos archivos a una release en el servidor.
+# El runtime no viene aca: el servidor necesita el Hosting Bundle de .NET de esa version.
+# La config del servidor (appsettings*.json) no viaja en el paquete.
+
+FROM mcr.microsoft.com/dotnet/sdk:10.0 AS build
+WORKDIR /src
+# Poner bin/ y obj/ en .dockerignore: los del equipo que arma el contexto contaminan el build.
+# Sin cache de restore: una API con muchos paquetes puede copiar primero los .csproj y restaurar.
+COPY . .
+
+# Publicar el .csproj por nombre: una carpeta con mas de uno falla o publica el equivocado.
+ARG PROJECT
+# container-release.yml los pasa siempre. La version informativa queda X.Y.Z+<sha>: si GET /version
+# la devuelve tal cual, deploy-iis.yml acepta ese +<sha> despues de la version.
+ARG APP_VERSION=0.0.0
+ARG GIT_SHA=unknown
+
+# Sin apphost: el web.config generado arranca `dotnet <App>.dll`, que no depende del SO del build.
+RUN test -n "$PROJECT" || { echo "falta el build-arg PROJECT (ruta del .csproj)" >&2; exit 1; } \
+ && dotnet publish "$PROJECT" -c Release -o /out \
+      -p:UseAppHost=false -p:Version="$APP_VERSION" -p:SourceRevisionId="$GIT_SHA"
+
+FROM scratch
+COPY --from=build /out/ /

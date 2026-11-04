@@ -1,0 +1,205 @@
+# Reusable workflow: despliega una VERSION ya publicada en un servidor Windows con IIS (sin contenedores).
+#
+# Espejo de deploy-vps.yml. El servidor nunca compila: el job corre en el runner self-hosted del
+# propio servidor, baja el artefacto inmutable que publico container-release.yml (una imagen
+# `FROM scratch` con la salida de `dotnet publish` o `pnpm build`, ver templates/Dockerfile.iis-*)
+# y lo despliega con scripts/deploy-iis.ps1: carpetas de release inmutables y un swap de junction.
+# Sin SSH y sin secretos de deploy: el GitHub Environment solo lleva variables (12.6.2 regla 2).
+#
+#   vars:  IIS_DEST_PATH   ruta que usa IIS (o el servicio); pasa a ser una junction
+#          IIS_APP_POOL    kind api: pool que se detiene durante el swap
+#          IIS_SITE_NAME   solo para el primer despliegue sobre una carpeta real
+#          HEALTH_URL      URL completa que debe responder 2xx tras el swap, con el esquema, el
+#                          nombre y el puerto del binding (kind api y spa)
+#          HEALTH_CONNECT_ADDRESS  opcional: IP a la que conectar si el binding es por IP
+#          HEALTH_SKIP_CERT_CHECK  opcional: `true` acepta cualquier certificado en el smoke test
+#          WIN_SERVICE_NAME  kind service
+#
+# Si el smoke test falla, el script vuelve solo a la release anterior. Rollback manual = volver a
+# desplegar una version publicada. Proteger el Environment `prod` con revisores obligatorios: esa
+# aprobacion es el registro de quien autorizo la promocion (12.6.2 regla 4).
+#
+# `org-ref` fija de donde se baja el script que va a correr en el servidor: un tag `workflows/vN`
+# o un SHA completo, nunca una rama. Usar el mismo tag al invocar este workflow.
+#
+# Uso (el caller debe conceder esos tres permisos o el workflow no arranca):
+#
+#   deploy:
+#     needs: release
+#     if: needs.release.outputs.environment != ''
+#     uses: GrupoRfacilEmpresarial/.github/.github/workflows/deploy-iis.yml@workflows/v1
+#     permissions: { contents: read, packages: read, actions: read }
+#     with:
+#       environment: ${{ needs.release.outputs.environment }}
+#       version: ${{ needs.release.outputs.version }}
+#       kind: api
+#       version-url: /version
+
+name: deploy-iis
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment destino (dev | qa | prod). Elige el runner iis-<ambiente>"
+        type: string
+        required: true
+      version:
+        description: "Version SemVer a desplegar (tag de imagen inmutable)"
+        type: string
+        required: true
+      kind:
+        description: "api (pool + app_offline.htm) | spa (solo swap) | service (parar, swap, arrancar)"
+        type: string
+        required: true
+      image:
+        description: "Imagen sin tag. Vacio = ghcr.io/<org>/<repo>, la que publica container-release.yml"
+        type: string
+        default: ""
+      version-url:
+        description: "Ruta (/version) o URL de GET /version, sondeada en el servidor. Vacio = no verifica"
+        type: string
+        default: ""
+      server-files:
+        description: "Archivos del servidor que no viajan en el paquete, separados por coma. Se copian de la release viva"
+        type: string
+        default: "appsettings*.json"
+      persist-dirs:
+        description: "Carpetas que sobreviven a las releases, separadas por coma. Vacio = Logs en api y service, ninguna en spa"
+        type: string
+        default: ""
+      org-ref:
+        description: "Tag workflows/vN (o SHA completo) del que se baja el script de despliegue"
+        type: string
+        default: "workflows/v1"
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  # Cortar un swap a la mitad deja el sitio indefinido: no se cancela, se encola.
+  group: deploy-${{ github.repository }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy ${{ inputs.version }} -> ${{ inputs.environment }}
+    # Un runner por servidor, con el label iis-dev, iis-qa o iis-prod. Un ambiente que no sea uno de
+    # esos tres no puede colar otro label: queda esperando un runner que no existe (iis-invalid).
+    runs-on: ${{ fromJSON(format('["self-hosted","windows","x64","iis-{0}"]', contains(fromJSON('["dev","qa","prod"]'), inputs.environment) && inputs.environment || 'invalid')) }}
+    timeout-minutes: 25
+    environment: ${{ inputs.environment }}
+    defaults:
+      run:
+        shell: powershell
+    env:
+      ENVIRONMENT: ${{ inputs.environment }}
+      VERSION: ${{ inputs.version }}
+      KIND: ${{ inputs.kind }}
+      ORG_REF: ${{ inputs.org-ref }}
+    steps:
+      - name: Validar entradas y herramientas
+        run: |
+          function Fail([string]$m) { Write-Host "::error::$m"; exit 1 }
+          if ($env:ENVIRONMENT -cnotin 'dev', 'qa', 'prod') { Fail "Ambiente invalido: '$env:ENVIRONMENT'." }
+          if ($env:KIND -cnotin 'api', 'spa', 'service') { Fail "kind debe ser api, spa o service: '$env:KIND'." }
+          if ($env:VERSION -cnotmatch '^[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc)\.[0-9A-Za-z.]+)?\z') { Fail "'$env:VERSION' no es una version desplegable." }
+          # Un -dev nunca llega a produccion (12.6.2 regla 3, 16.3).
+          if ($env:ENVIRONMENT -eq 'prod' -and $env:VERSION.Contains('-')) { Fail "Solo una version estable X.Y.Z se despliega en prod. Recibido: $env:VERSION." }
+          # El script corre en el servidor: solo un tag de version o un SHA, nunca una rama.
+          if ($env:ORG_REF -cnotmatch '^(workflows/v[0-9]+(\.[0-9]+){0,2}|[0-9a-f]{40})\z') { Fail "org-ref debe ser un tag workflows/vN o un SHA completo: '$env:ORG_REF'." }
+          if (-not (Get-Command crane -ErrorAction SilentlyContinue)) { Fail 'crane no esta en el PATH del runner.' }
+          if (-not (Test-Path (Join-Path $env:SystemRoot 'System32\tar.exe'))) { Fail 'No existe System32\tar.exe en el runner.' }
+
+      - name: Bajar el script de despliegue (version fijada)
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          repository: GrupoRfacilEmpresarial/.github
+          # Un tag se pide como refs/tags/...: sin el prefijo, checkout prueba antes una rama con ese nombre.
+          ref: ${{ startsWith(inputs.org-ref, 'workflows/') && format('refs/tags/{0}', inputs.org-ref) || inputs.org-ref }}
+          path: .org-ci
+          sparse-checkout: scripts
+          persist-credentials: false
+
+      - name: Bajar el artefacto
+        env:
+          IMAGE: ${{ inputs.image }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          $image = if ($env:IMAGE) { $env:IMAGE } else { 'ghcr.io/' + $env:GITHUB_REPOSITORY.ToLower() }
+          # Solo imagenes de la organizacion: quien aprueba prod ve la version, no la imagen.
+          $owner = $env:GITHUB_REPOSITORY_OWNER.ToLower()
+          if ($image -cnotmatch '^ghcr\.io/[a-z0-9][a-z0-9._/-]*\z' -or $image.Contains('..') -or $image.Contains('//') -or -not $image.StartsWith("ghcr.io/$owner/")) { throw "image debe ser ghcr.io/$owner/<nombre>: '$image'." }
+          # Credenciales solo para este job: RUNNER_TEMP se vacia al terminar.
+          $cfg = Join-Path $env:RUNNER_TEMP 'docker-config'
+          New-Item -ItemType Directory -Force -Path $cfg | Out-Null
+          $auth = [Convert]::ToBase64String([Text.Encoding]::ASCII.GetBytes("$($env:GITHUB_ACTOR):$($env:GITHUB_TOKEN)"))
+          [IO.File]::WriteAllText((Join-Path $cfg 'config.json'), "{`"auths`":{`"ghcr.io`":{`"auth`":`"$auth`"}}}")
+          $env:DOCKER_CONFIG = $cfg
+          # Se exporta por digest: lo que se registra es exactamente lo que se despliega.
+          $digest = (crane digest "${image}:$env:VERSION" | Out-String).Trim()
+          if ($LASTEXITCODE -ne 0 -or $digest -cnotmatch '^sha256:[0-9a-f]{64}$') { throw "No se pudo resolver ${image}:$env:VERSION ('$digest')." }
+          # A un archivo y no `crane export - | tar -x`: Windows PowerShell 5.1 corrompe un pipe binario entre programas.
+          # tar.exe de System32 (bsdtar) y no el primero del PATH: el GNU tar de Git trata `C:` como un host.
+          $tarball = Join-Path $env:RUNNER_TEMP 'package.tar'
+          $pkg = Join-Path $env:RUNNER_TEMP 'package'
+          New-Item -ItemType Directory -Force -Path $pkg | Out-Null
+          crane export "${image}@$digest" $tarball
+          if ($LASTEXITCODE -ne 0) { throw 'crane export fallo.' }
+          & (Join-Path $env:SystemRoot 'System32\tar.exe') -xf $tarball -C $pkg
+          if ($LASTEXITCODE -ne 0) { throw 'tar no pudo extraer el artefacto.' }
+          [IO.File]::AppendAllText($env:GITHUB_ENV, "PACKAGE_DIR=$pkg`nIMAGE_REF=$image`nIMAGE_DIGEST=$digest`n")
+
+      - name: Desplegar
+        env:
+          IIS_DEST_PATH: ${{ vars.IIS_DEST_PATH }}
+          IIS_SITE_NAME: ${{ vars.IIS_SITE_NAME }}
+          IIS_APP_POOL: ${{ vars.IIS_APP_POOL }}
+          WIN_SERVICE_NAME: ${{ vars.WIN_SERVICE_NAME }}
+          HEALTH_URL: ${{ vars.HEALTH_URL }}
+          HEALTH_CONNECT_ADDRESS: ${{ vars.HEALTH_CONNECT_ADDRESS }}
+          HEALTH_SKIP_CERT_CHECK: ${{ vars.HEALTH_SKIP_CERT_CHECK }}
+          VERSION_URL: ${{ inputs.version-url }}
+          SERVER_FILES: ${{ inputs.server-files }}
+          PERSIST_DIRS: ${{ inputs.persist-dirs }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          $ErrorActionPreference = 'Stop'
+          & (Join-Path $env:GITHUB_WORKSPACE '.org-ci\scripts\deploy-iis.ps1') `
+            -Kind $env:KIND -Source $env:PACKAGE_DIR -DestPath $env:IIS_DEST_PATH -Version $env:VERSION `
+            -SiteName $env:IIS_SITE_NAME -AppPool $env:IIS_APP_POOL -ServiceName $env:WIN_SERVICE_NAME `
+            -HealthUrl $env:HEALTH_URL -HealthAddress $env:HEALTH_CONNECT_ADDRESS `
+            -HealthSkipCert:($env:HEALTH_SKIP_CERT_CHECK -eq 'true') `
+            -VersionUrl $env:VERSION_URL -ServerFiles $env:SERVER_FILES `
+            -PersistDirs $env:PERSIST_DIRS -RunUrl $env:RUN_URL -Digest $env:IMAGE_DIGEST
+          if ($LASTEXITCODE -ne 0) { exit $LASTEXITCODE }
+
+      - name: Registro de despliegue
+        if: always()
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+          TRIGGERING_ACTOR: ${{ github.triggering_actor }}
+          JOB_STATUS: ${{ job.status }}
+          RUN_NUMBER: ${{ github.run_number }}
+        run: |
+          $ErrorActionPreference = 'Continue'
+          # Quien autorizo es quien aprobo el Environment; sin aprobacion registrada, quien lo disparo.
+          $autorizo = "@$env:TRIGGERING_ACTOR (lo disparo; sin aprobacion registrada)"
+          try {
+            [Net.ServicePointManager]::SecurityProtocol = [Net.SecurityProtocolType]::Tls12
+            $uri = "$env:GITHUB_API_URL/repos/$env:GITHUB_REPOSITORY/actions/runs/$env:GITHUB_RUN_ID/approvals"
+            $aprobaciones = Invoke-RestMethod -Uri $uri -Headers @{ Authorization = "Bearer $env:GITHUB_TOKEN"; Accept = 'application/vnd.github+json' }
+            $nombres = @($aprobaciones | Where-Object { $_.state -eq 'approved' -and ($_.environments.name -contains $env:ENVIRONMENT) } | ForEach-Object { '@' + $_.user.login })
+            if ($nombres) { $autorizo = $nombres -join ', ' }
+          } catch { Write-Host "No se pudieron leer las aprobaciones: $($_.Exception.Message)" }
+          $texto = @(
+            '### Despliegue',
+            '| Ambiente | Version | Desplego | Autorizo | Estado |',
+            '|---|---|---|---|---|',
+            "| $env:ENVIRONMENT | ``$env:VERSION`` | pipeline #$env:RUN_NUMBER | $autorizo | $env:JOB_STATUS |"
+          )
+          if ($env:IMAGE_DIGEST) { $texto += '', "Artefacto: ``$env:IMAGE_REF@$env:IMAGE_DIGEST``" }
+          [IO.File]::AppendAllText($env:GITHUB_STEP_SUMMARY, ($texto -join "`n") + "`n")

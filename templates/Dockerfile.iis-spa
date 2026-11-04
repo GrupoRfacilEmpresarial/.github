@@ -1,0 +1,36 @@
+# syntax=docker/dockerfile:1
+# Artefacto de un front estatico (React/Vite con pnpm) para deploy-iis.yml (kind: spa). Copiar a la
+# raiz del repo como `Dockerfile.iis` y publicarlo con container-release.yml (ver docs/ci/iis.md):
+#
+#   with:
+#     images: '[{"name":"","dockerfile":"Dockerfile.iis","npm-secret":true}]'
+#
+# La imagen no se ejecuta: termina en `FROM scratch` con el contenido de `dist` en la raiz.
+# deploy-iis.yml la baja con `crane export` y copia esos archivos a una release en el servidor.
+# Un front que hornea URLs por ambiente en el bundle no se puede promover: ver 12.6.9.
+
+FROM node:22-alpine AS build
+WORKDIR /src
+RUN corepack enable
+
+# Primero los manifiestos: el install solo se repite si cambian las dependencias.
+COPY package.json pnpm-lock.yaml* .npmrc* ./
+# El token de GitHub Packages solo existe durante este RUN. Al .npmrc se le agrega la linea con el
+# marcador ${NODE_AUTH_TOKEN} sin expandir: npm lo expande al leer, asi que la capa no lo guarda.
+RUN printf '\n//npm.pkg.github.com/:_authToken=${NODE_AUTH_TOKEN}\n' >> .npmrc
+RUN --mount=type=secret,id=npm_token \
+    NODE_AUTH_TOKEN="$(cat /run/secrets/npm_token 2>/dev/null)" pnpm install --frozen-lockfile
+COPY . .
+RUN pnpm run build
+
+# container-release.yml los pasa siempre. Salen en /version.json, que es el version-url del front.
+# Van al final para que cambiar la version no invalide el install ni el build.
+ARG APP_VERSION=0.0.0
+ARG GIT_SHA=unknown
+# IIS necesita web.config junto a index.html. Si el repo lo guarda en la raiz, va al paquete.
+RUN mkdir /out && cp -r dist/. /out/ \
+ && if [ -f web.config ] && [ ! -f /out/web.config ]; then cp web.config /out/; fi \
+ && printf '{"version":"%s","commit":"%s"}\n' "$APP_VERSION" "$GIT_SHA" > /out/version.json
+
+FROM scratch
+COPY --from=build /out/ /
