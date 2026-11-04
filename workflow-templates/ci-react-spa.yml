@@ -1,0 +1,59 @@
+# CI/CD estandar para fronts React/Vite servidos en contenedor (ENG-STD-001 13.5, 12.6).
+#
+# Mismo flujo que el de APIs: una imagen por version, promovida sin recompilar.
+# Eso exige que el bundle NO hornee valores por ambiente: VITE_API_URL y VITE_BASE_PATH
+# deben ser rutas relativas iguales en dev/qa/prod (o configuracion en runtime, p.ej. un
+# /config.js servido por nginx). Si hoy difieren por ambiente, ver docs/ci/README.md.
+#
+# Completar los valores marcados con <-- y borrar este bloque de ayuda.
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths-ignore: ["**.md", "docs/**"]
+  push:
+    branches: [develop, "release/**", "hotfix/**"]
+    tags: ["v*.*.*"]
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  calidad:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    uses: GrupoRfacilEmpresarial/.github/.github/workflows/ci-node.yml@main
+    with:
+      github-packages: true              # <-- true si usa @gruporfacilempresarial/ui
+      test-script: "vitest run --coverage"   # <-- o "test"
+    secrets: inherit
+
+  release:
+    needs: calidad
+    if: ${{ !cancelled() && github.event_name == 'push' && contains(fromJSON('["success","skipped"]'), needs.calidad.result) }}
+    uses: GrupoRfacilEmpresarial/.github/.github/workflows/container-release.yml@main
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    with:
+      # npm-secret monta NPM_READ_TOKEN como secret de BuildKit (id=npm_token), nunca en una capa.
+      images: >-
+        [{"name":"","npm-secret":true,
+          "build-args":"VITE_BASE_PATH=/mi-app/\nVITE_API_URL=/mi-api"}]
+
+  deploy:
+    needs: release
+    if: needs.release.outputs.environment != ''
+    uses: GrupoRfacilEmpresarial/.github/.github/workflows/deploy-vps.yml@main
+    with:
+      environment: ${{ needs.release.outputs.environment }}
+      version: ${{ needs.release.outputs.version }}
+      require-env-file: false            # <-- un SPA estatico normalmente no tiene .env
+    secrets: inherit

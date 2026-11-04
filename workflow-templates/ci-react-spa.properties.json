@@ -1,0 +1,7 @@
+{
+  "name": "CI/CD React SPA (ENG-STD-001)",
+  "description": "Lint, typecheck, pruebas, build y audit con pnpm/npm; imagen nginx inmutable construida una vez y promovida dev -> qa -> prod.",
+  "iconName": "octicon browser",
+  "categories": ["TypeScript", "JavaScript", "Dockerfile"],
+  "filePatterns": ["package\\.json$", "vite\\.config\\.(ts|js|mjs)$"]
+}

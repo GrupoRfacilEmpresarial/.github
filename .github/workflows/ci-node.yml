@@ -1,0 +1,178 @@
+# Reusable workflow: CI estandar para fronts React/Vite y paquetes Node (ENG-STD-001 13.5).
+#
+#   lint           -> script "lint"
+#   type check     -> script "typecheck" si existe; si no, tsc --noEmit cuando hay tsconfig
+#   pruebas        -> script "test" (o el que indique test-script)
+#   build          -> script "build"
+#   dependencias   -> <pm> audit --audit-level=<nivel>
+#
+# Detecta pnpm/npm/yarn por el lockfile. La version de pnpm sale de "packageManager" en
+# package.json via corepack, para que CI y local no diverjan.
+#
+# Los scripts que el package.json no define se saltan con un aviso, no con error: el
+# workflow no inventa scripts, los exige el repo.
+#
+# Uso minimo:
+#
+#   jobs:
+#     front:
+#       uses: GrupoRfacilEmpresarial/.github/.github/workflows/ci-node.yml@main
+#       secrets: inherit
+
+name: ci-node
+
+on:
+  workflow_call:
+    inputs:
+      working-directory:
+        description: "Directorio del package.json (monorepos back+front)"
+        type: string
+        default: "."
+      node-version:
+        description: "Version de Node. Se ignora si existe .nvmrc o .node-version"
+        type: string
+        default: "22"
+      test-script:
+        description: "Script de pruebas. Ej: test, coverage, 'vitest run --coverage'"
+        type: string
+        default: "test"
+      audit-level:
+        description: "Nivel minimo que bloquea en audit (low|moderate|high|critical). Vacio = no audita"
+        type: string
+        default: "high"
+      github-packages:
+        description: "Autenticar contra npm.pkg.github.com (paquetes privados @gruporfacilempresarial/*). Requiere el secret NPM_READ_TOKEN"
+        type: boolean
+        default: false
+      build-env:
+        description: "Variables para el build, una KEY=valor por linea. DEBEN ser iguales en todos los ambientes (seccion 12.6.2)"
+        type: string
+        default: ""
+      runs-on:
+        description: 'Runner en JSON. Ej: "ubuntu-latest" o ["self-hosted","linux"]'
+        type: string
+        default: '"ubuntu-latest"'
+      timeout-minutes:
+        type: number
+        default: 20
+    secrets:
+      NPM_READ_TOKEN:
+        required: false
+
+permissions:
+  contents: read
+
+jobs:
+  node:
+    name: node (lint, typecheck, test, build, audit)
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Detectar gestor de paquetes y version de Node
+        id: pm
+        run: |
+          if   [ -f pnpm-lock.yaml ];    then pm=pnpm; lock=pnpm-lock.yaml; install="pnpm install --frozen-lockfile"
+          elif [ -f yarn.lock ];         then pm=yarn; lock=yarn.lock;      install="yarn install --immutable"
+          elif [ -f package-lock.json ]; then pm=npm;  lock=package-lock.json; install="npm ci"
+          else echo "::error::No hay lockfile en ${{ inputs.working-directory }}. Sin lockfile el build no es reproducible."; exit 1
+          fi
+          nvm=""
+          for f in .nvmrc .node-version; do [ -f "$f" ] && nvm="${{ inputs.working-directory }}/$f" && break; done
+          {
+            echo "pm=$pm"
+            echo "lock=${{ inputs.working-directory }}/$lock"
+            echo "install=$install"
+            echo "nvm=$nvm"
+          } >> "$GITHUB_OUTPUT"
+
+      # corepack va antes de setup-node: el cache de pnpm necesita el binario para ubicar el store.
+      - name: Habilitar corepack
+        if: steps.pm.outputs.pm != 'npm'
+        run: corepack enable
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: ${{ steps.pm.outputs.nvm == '' && inputs.node-version || '' }}
+          node-version-file: ${{ steps.pm.outputs.nvm }}
+          cache: ${{ steps.pm.outputs.pm }}
+          cache-dependency-path: ${{ steps.pm.outputs.lock }}
+
+      # GITHUB_TOKEN esta acotado al repo y no lee paquetes publicados desde otro: hace falta
+      # un token propio con read:packages. Se escribe en ~/.npmrc, nunca en el .npmrc del repo.
+      - name: Autenticar contra GitHub Packages
+        if: inputs.github-packages
+        env:
+          NPM_READ_TOKEN: ${{ secrets.NPM_READ_TOKEN }}
+        run: |
+          if [ -z "$NPM_READ_TOKEN" ]; then
+            echo "::error::github-packages=true pero el secret NPM_READ_TOKEN no llego. Pasar 'secrets: inherit'."
+            exit 1
+          fi
+          printf '//npm.pkg.github.com/:_authToken=%s\n' "$NPM_READ_TOKEN" >> ~/.npmrc
+
+      - name: Install
+        run: ${{ steps.pm.outputs.install }}
+
+      - name: Lint
+        run: |
+          if jq -e '.scripts.lint' package.json >/dev/null; then ${{ steps.pm.outputs.pm }} run lint
+          else echo "::warning::package.json no define el script 'lint' (seccion 13.5 lo exige)."; fi
+
+      - name: Type check
+        run: |
+          if jq -e '.scripts.typecheck' package.json >/dev/null; then
+            ${{ steps.pm.outputs.pm }} run typecheck
+          elif [ -f tsconfig.json ]; then
+            # tsc -b respeta project references (plantilla de Vite); --noEmit no aplica con -b.
+            if jq -e '.references' tsconfig.json >/dev/null 2>&1; then npx --no-install tsc -b
+            else npx --no-install tsc --noEmit; fi
+          else
+            echo "Sin TypeScript: se omite."
+          fi
+
+      - name: Pruebas
+        env:
+          CI: "true"
+        run: |
+          script="${{ inputs.test-script }}"
+          primero="${script%% *}"
+          if [ "$script" != "$primero" ]; then
+            ${{ steps.pm.outputs.pm }} exec $script
+          elif jq -e --arg s "$script" '.scripts[$s]' package.json >/dev/null; then
+            ${{ steps.pm.outputs.pm }} run "$script"
+          else
+            echo "::warning::package.json no define el script '$script': no hay pruebas en CI (seccion 13.5 lo exige)."
+          fi
+
+      - name: Build
+        env:
+          BUILD_ENV: ${{ inputs.build-env }}
+        run: |
+          while IFS= read -r linea; do
+            [ -n "$linea" ] && export "$linea"
+          done <<< "$BUILD_ENV"
+          ${{ steps.pm.outputs.pm }} run build
+
+      - name: Auditoria de dependencias
+        if: inputs.audit-level != ''
+        run: |
+          case "${{ steps.pm.outputs.pm }}" in
+            pnpm) pnpm audit --audit-level=${{ inputs.audit-level }} --prod ;;
+            npm)  npm audit --audit-level=${{ inputs.audit-level }} --omit=dev ;;
+            yarn) yarn npm audit --severity ${{ inputs.audit-level }} --environment production ;;
+          esac
+
+      - name: Subir cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-coverage
+          path: ${{ inputs.working-directory }}/coverage/
+          retention-days: 7
+          if-no-files-found: ignore
