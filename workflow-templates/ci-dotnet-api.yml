@@ -1,0 +1,59 @@
+# CI/CD estandar para APIs .NET en contenedor (ENG-STD-001 13.5, 12.6).
+#
+#   PR a develop/main          -> calidad (format, build, test, cobertura, vulnerabilidades)
+#   push develop               -> calidad + imagen X.Y.Z-dev.<fecha>.<sha> + deploy a dev
+#   push release/* o hotfix/*  -> calidad + imagen X.Y.Z-rc.N + deploy a qa
+#   tag vX.Y.Z sobre main      -> re-tag del rc a X.Y.Z (sin compilar) + deploy a prod
+#
+# Completar los valores marcados con <-- y borrar este bloque de ayuda.
+name: ci
+
+on:
+  pull_request:
+    branches: [develop, main]
+    paths-ignore: ["**.md", "docs/**"]
+  push:
+    branches: [develop, "release/**", "hotfix/**"]
+    tags: ["v*.*.*"]
+    paths-ignore: ["**.md", "docs/**"]
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  # Las corridas de tag son releases: nunca se cancelan.
+  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+
+permissions:
+  contents: read
+
+jobs:
+  calidad:
+    if: ${{ !startsWith(github.ref, 'refs/tags/') }}
+    uses: GrupoRfacilEmpresarial/.github/.github/workflows/ci-dotnet.yml@main
+    with:
+      solution: MiServicio.slnx          # <-- .sln/.slnx del repo
+      coverage-threshold: 80             # <-- umbral acordado (13.5)
+      integration-tests: true            # <-- false si no hay Category=Integration
+      # runs-on: '["self-hosted","linux","ci-heavy"]'
+
+  release:
+    needs: calidad
+    if: ${{ !cancelled() && github.event_name == 'push' && contains(fromJSON('["success","skipped"]'), needs.calidad.result) }}
+    uses: GrupoRfacilEmpresarial/.github/.github/workflows/container-release.yml@main
+    permissions:
+      contents: read
+      packages: write
+    secrets: inherit
+    # with:
+    #   images: '[{"name":"","dockerfile":"src/MiServicio.Api/Dockerfile"}]'
+
+  deploy:
+    needs: release
+    if: needs.release.outputs.environment != ''
+    uses: GrupoRfacilEmpresarial/.github/.github/workflows/deploy-vps.yml@main
+    with:
+      environment: ${{ needs.release.outputs.environment }}
+      version: ${{ needs.release.outputs.version }}
+      health-service: api                # <-- servicio del compose con /health/ready
+      # version-url: https://<host>/<prefijo>/version
+    secrets: inherit

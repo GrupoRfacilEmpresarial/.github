@@ -1,0 +1,7 @@
+{
+  "name": "CI/CD .NET API (ENG-STD-001)",
+  "description": "Format, build, test con cobertura y auditoria NuGet; imagen inmutable en GHCR construida una vez y promovida dev -> qa -> prod.",
+  "iconName": "octicon package",
+  "categories": ["C#", "Dockerfile"],
+  "filePatterns": ["\\.slnx?$", "\\.csproj$"]
+}
