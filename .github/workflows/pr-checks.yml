@@ -1,0 +1,221 @@
+# Reusable workflow: controles de gobierno del pull request (ENG-STD-001 0.2 y 13.5).
+#
+# Independiente del stack. Complementa a conventional-commits.yml (que valida los commits):
+#
+#   titulo convencional     -> 0.2 regla 3, 7.1  (el titulo es el commit final bajo squash)
+#   etiqueta semver:*       -> 0.2 regla 4, 5.1  (exactamente una, y coherente con el titulo)
+#   CHANGELOG en el PR      -> 0.2 regla 10, 13.5 (feat/fix/security/perf y breaking)
+#   nombre de rama          -> 12.1
+#   tamano del PR           -> 0.2 regla 2 (<= 400 lineas)
+#   secretos en el diff     -> 13.5 (gitleaks sobre los commits del PR)
+#
+# Solo tiene sentido en pull_request. El caller debe escuchar edited/labeled/unlabeled para
+# que cambiar el titulo o la etiqueta vuelva a correr el control:
+#
+#   on:
+#     pull_request:
+#       types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+#   jobs:
+#     gobierno:
+#       uses: GrupoRfacilEmpresarial/.github/.github/workflows/pr-checks.yml@main
+
+name: pr-checks
+
+on:
+  workflow_call:
+    inputs:
+      max-title-length:
+        type: number
+        default: 72
+      require-changelog:
+        description: "Exigir cambios en CHANGELOG.md para feat/fix/perf/security y breaking"
+        type: boolean
+        default: true
+      changelog-path:
+        type: string
+        default: "CHANGELOG.md"
+      max-changed-lines:
+        description: "Limite de lineas cambiadas (0 = sin limite). Excluye lockfiles"
+        type: number
+        default: 400
+      enforce-size:
+        description: "false = el exceso de tamano solo avisa"
+        type: boolean
+        default: false
+      enforce-branch-names:
+        description: "false = una rama fuera de 12.1 solo avisa"
+        type: boolean
+        default: false
+      secret-scan:
+        type: boolean
+        default: true
+      gitleaks-version:
+        type: string
+        default: "v8.28.0"
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  titulo-y-etiqueta:
+    name: titulo, semver y changelog
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Titulo convencional
+        id: titulo
+        env:
+          TITULO: ${{ github.event.pull_request.title }}
+          MAX_LEN: ${{ inputs.max-title-length }}
+        run: |
+          set -uo pipefail
+          # Lista cerrada de 7.2, igual que conventional-commits.yml.
+          tipos='build|chore|ci|deprecate|docs|feat|fix|merge|perf|refactor|revert|security|style|test'
+          patron="^(${tipos})(\([a-z0-9._/-]+\))?(!)?: .+"
+          if ! printf '%s' "$TITULO" | grep -Eq "$patron"; then
+            echo "::error::Titulo de PR no convencional (seccion 7.1): $TITULO"
+            exit 1
+          fi
+          largo=$(printf '%s' "$TITULO" | wc -m)
+          if [ "$largo" -gt "$MAX_LEN" ]; then
+            echo "::error::Titulo de $largo caracteres, maximo $MAX_LEN (seccion 7.1)."
+            exit 1
+          fi
+          tipo=$(printf '%s' "$TITULO" | sed -E "s/^(${tipos}).*/\1/")
+          breaking=false
+          printf '%s' "$TITULO" | grep -Eq '^[a-z]+(\([^)]*\))?!:' && breaking=true
+          # BREAKING CHANGE en cualquier commit del PR tambien cuenta (7.1).
+          if git log --format=%B "origin/${{ github.base_ref }}..HEAD" | grep -Eq '^BREAKING[ -]CHANGE:'; then
+            breaking=true
+          fi
+          echo "tipo=$tipo" >> "$GITHUB_OUTPUT"
+          echo "breaking=$breaking" >> "$GITHUB_OUTPUT"
+
+      # Analisis automatico vs etiqueta declarada (13.5: "falta, o contradice el analisis").
+      # Ante la duda se elige el nivel mas alto (0.2 regla 7): la etiqueta puede ser MAYOR
+      # que lo que sugiere el titulo, nunca menor.
+      - name: Etiqueta semver
+        id: semver
+        env:
+          ETIQUETAS: ${{ toJSON(github.event.pull_request.labels.*.name) }}
+          TIPO: ${{ steps.titulo.outputs.tipo }}
+          BREAKING: ${{ steps.titulo.outputs.breaking }}
+        run: |
+          set -uo pipefail
+          mapfile -t semver < <(printf '%s' "$ETIQUETAS" | jq -r '.[] | select(startswith("semver:"))')
+          if [ ${#semver[@]} -ne 1 ]; then
+            echo "::error::El PR debe tener exactamente una etiqueta semver:major|minor|patch|none (seccion 5.1). Tiene ${#semver[@]}."
+            exit 1
+          fi
+          etiqueta="${semver[0]#semver:}"
+          case "$etiqueta" in major|minor|patch|none) ;; *)
+            echo "::error::Etiqueta desconocida semver:$etiqueta."; exit 1 ;;
+          esac
+          rango() { case "$1" in none) echo 0;; patch) echo 1;; minor) echo 2;; major) echo 3;; esac; }
+          if [ "$BREAKING" = "true" ]; then minimo=major
+          else
+            case "$TIPO" in
+              feat|deprecate) minimo=minor ;;
+              fix|perf|security|revert) minimo=patch ;;
+              *) minimo=none ;;
+            esac
+          fi
+          if [ "$(rango "$etiqueta")" -lt "$(rango "$minimo")" ]; then
+            echo "::error::semver:$etiqueta contradice el analisis: un '$TIPO' $( [ "$BREAKING" = true ] && echo 'con breaking ')exige al menos semver:$minimo (seccion 7.2)."
+            exit 1
+          fi
+          echo "etiqueta=$etiqueta" >> "$GITHUB_OUTPUT"
+          echo "semver:$etiqueta (minimo por analisis: $minimo)" >> "$GITHUB_STEP_SUMMARY"
+
+      - name: CHANGELOG en el PR
+        if: inputs.require-changelog
+        env:
+          ETIQUETA: ${{ steps.semver.outputs.etiqueta }}
+          CHANGELOG: ${{ inputs.changelog-path }}
+        run: |
+          if [ "$ETIQUETA" = "none" ]; then
+            echo "semver:none: no requiere entrada de CHANGELOG."
+            exit 0
+          fi
+          if [ ! -f "$CHANGELOG" ]; then
+            echo "::error::No existe $CHANGELOG (seccion 16.3: todo repo nivel 2+ lo tiene). Copiar templates/CHANGELOG.md del repo .github."
+            exit 1
+          fi
+          if ! git diff --name-only "origin/${{ github.base_ref }}...HEAD" | grep -qx "$CHANGELOG"; then
+            echo "::error::PR semver:$ETIQUETA sin entrada en $CHANGELOG. El CHANGELOG se escribe en el PR (0.2 regla 10)."
+            exit 1
+          fi
+
+  rama-y-tamano:
+    name: rama y tamano
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Nombre de rama (12.1)
+        env:
+          RAMA: ${{ github.head_ref }}
+          BASE: ${{ github.base_ref }}
+          ESTRICTO: ${{ inputs.enforce-branch-names }}
+        run: |
+          nivel=warning; [ "$ESTRICTO" = "true" ] && nivel=error
+          ok=true
+          case "$RAMA" in
+            feature/*|release/*|hotfix/*|support/*|develop) ;;
+            dependabot/*|renovate/*) ;;
+            *) ok=false ;;
+          esac
+          [ "$ok" = true ] || echo "::$nivel::Rama '$RAMA' fuera de la tabla 12.1 (feature/, release/, hotfix/, support/)."
+          # release/* y hotfix/* solo vuelven a main o develop; feature/* solo va a develop.
+          case "$RAMA" in
+            feature/*) [ "$BASE" = "develop" ] || { echo "::$nivel::feature/* debe apuntar a develop, no a $BASE."; ok=false; } ;;
+          esac
+          [ "$ok" = true ] || [ "$ESTRICTO" != "true" ]
+
+      - name: Tamano del PR (0.2 regla 2)
+        env:
+          MAX: ${{ inputs.max-changed-lines }}
+          ESTRICTO: ${{ inputs.enforce-size }}
+          RAMA: ${{ github.head_ref }}
+        run: |
+          [ "$MAX" = "0" ] && exit 0
+          # Promociones release/hotfix y la sincronia main->develop no son trabajo nuevo.
+          case "$RAMA" in release/*|hotfix/*|develop) echo "Rama de promocion: no aplica."; exit 0;; esac
+          lineas=$(git diff --numstat "origin/${{ github.base_ref }}...HEAD" -- . \
+            ':(exclude)*lock.json' ':(exclude)*.lock' ':(exclude)pnpm-lock.yaml' ':(exclude)**/Migrations/*.Designer.cs' \
+            | awk '{ a += ($1 == "-" ? 0 : $1); b += ($2 == "-" ? 0 : $2) } END { print a + b }')
+          echo "Lineas cambiadas (sin lockfiles): $lineas, limite $MAX."
+          if [ "$lineas" -gt "$MAX" ]; then
+            nivel=warning; [ "$ESTRICTO" = "true" ] && nivel=error
+            echo "::$nivel::PR de $lineas lineas, limite $MAX (0.2 regla 2). Partirlo o registrar excepcion (17.3)."
+            [ "$ESTRICTO" = "true" ] && exit 1
+          fi
+          exit 0
+
+  secretos:
+    name: secretos en el diff
+    if: github.event_name == 'pull_request' && inputs.secret-scan
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      # Binario oficial en contenedor: gitleaks-action exige licencia para organizaciones.
+      - name: gitleaks sobre los commits del PR
+        run: |
+          docker run --rm --user "$(id -u):$(id -g)" -v "$PWD:/repo" -w /repo \
+            ghcr.io/gitleaks/gitleaks:${{ inputs.gitleaks-version }} \
+            git --redact --no-banner --exit-code 1 \
+            --log-opts="origin/${{ github.base_ref }}..HEAD" .

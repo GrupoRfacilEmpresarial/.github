@@ -1,0 +1,21 @@
+# Gobierno del PR (ENG-STD-001 0.2 y 13.5). Igual en todos los repos, de cualquier stack.
+# Separado del CI para que editar el titulo o la etiqueta no recompile nada.
+name: gobierno
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened, labeled, unlabeled]
+  push:
+    branches: [develop, "release/**", "hotfix/**"]
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  commits:
+    uses: GrupoRfacilEmpresarial/.github/.github/workflows/conventional-commits.yml@main
+
+  pr:
+    if: github.event_name == 'pull_request'
+    uses: GrupoRfacilEmpresarial/.github/.github/workflows/pr-checks.yml@main

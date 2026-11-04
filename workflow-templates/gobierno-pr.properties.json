@@ -1,0 +1,6 @@
+{
+  "name": "Gobierno de PR (ENG-STD-001)",
+  "description": "Conventional Commits, titulo de PR, etiqueta semver:*, CHANGELOG, nombre de rama, tamano y secretos. Para todos los repos.",
+  "iconName": "octicon shield-check",
+  "categories": ["Automation"]
+}
