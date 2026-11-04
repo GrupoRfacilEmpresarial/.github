@@ -225,16 +225,17 @@ aprobadores del Environment, y si no hay ninguno, quien disparó la corrida.
 El script corre con privilegios en el servidor. Por eso el workflow lo baja de este repositorio
 en un tag `workflows/vN` y rechaza una rama.
 
-**El primer tag.** El default de `org-ref` es `workflows/v1`, que no existe hasta que alguien lo
-crea. Cuando `main` ya tiene `deploy-iis.yml` y `scripts/deploy-iis.ps1`, hay que crearlo sobre
-el commit de `main` que contiene los dos: `git tag workflows/v1 <sha>` y
-`git push origin workflows/v1`. Mientras no exista, ningún caller que use el default de `org-ref`
-puede ejecutar el workflow (uno que fije un SHA completo en `uses:` y en `org-ref` sí).
+**El primer tag.** El default de `org-ref` es `workflows/v1`, que se creó sobre el commit de `main`
+que contiene `deploy-iis.yml` y `scripts/deploy-iis.ps1`. Un tag nuevo se crea del mismo modo,
+sobre el commit de `main` que contiene los cambios: `git tag workflows/vN <sha>` y
+`git push origin workflows/vN`. Sin el tag, ningún caller que use el default de `org-ref` puede
+ejecutar el workflow (uno que fije un SHA completo en `uses:` y en `org-ref` sí).
 
 Después de fusionar un cambio al script se crea un tag nuevo (o se mueve `vN` solo para
 correcciones compatibles) y los callers apuntan a ese mismo tag en `uses:`. Los tags
-`workflows/*` conviene protegerlos con un ruleset: hoy cualquiera con permiso de escritura podría
-moverlos.
+`workflows/*` están protegidos por el ruleset `workflows-tags-controlados`: solo los
+administradores del repositorio y el equipo `release-managers` pueden crearlos, moverlos o
+borrarlos.
 
 ## Fuera de esta versión
 
