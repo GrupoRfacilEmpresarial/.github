@@ -37,6 +37,44 @@ gh pr create --base develop
 4. Abrís el PR contra `develop`, con la etiqueta `semver:*` que corresponda.
 5. Al mergear, la rama se borra.
 
+## Ruta rápida: un hotfix
+
+Corrección urgente de lo que está en producción **ahora** (ENG-STD-001 §9.5). Sale del tag que
+corre en producción, nunca de `develop`, y lleva solo el arreglo.
+
+1. **Verificá que `main` es lo que está en producción.** `v1.1.1` es el tag que corre en
+   producción en este ejemplo:
+
+   ```bash
+   git fetch origin --tags
+   git diff --stat v1.1.1 origin/main
+   ```
+
+   Tiene que salir vacío. Si sale algo, `main` tiene cambios que producción no tiene (regla 4 de
+   la sección 12.1): no armes el hotfix encima. Avisá al Version Owner, que decide si se libera
+   lo que sobra o se revierte, y recién después seguís.
+2. **Rama desde el tag**, con el número del parche siguiente:
+
+   ```bash
+   git switch -c hotfix/1.1.2 v1.1.1
+   ```
+
+3. **Solo el arreglo**, su prueba y la entrada del CHANGELOG en el mismo PR. Commit convencional
+   (`fix(...)`). Sin refactors, sin mejoras, sin features: si el arreglo pide algo más grande,
+   ese cambio espera al siguiente release.
+4. **PR contra `main`**, nivel R0 y etiqueta `semver:patch`. Un aprobador alcanza; si el incidente
+   no da tiempo, la aprobación puede llegar después, dentro de las 24 h, y queda anotada en el
+   incidente. Se mergea con squash, como todo.
+5. **Tag sobre `main`** (`v1.1.2`), con su Release en GitHub y el artefacto adjunto. Los tags `v*`
+   solo los crea quien tiene permiso en el ruleset `release-tags-controlados`.
+6. **Despliegue** del artefacto de ese tag y smoke test (sección 14.2).
+7. **Sincronía a `develop` el mismo día**, y a toda `release/*` abierta (sección siguiente).
+8. **Registro del incidente**; post-mortem si hubo impacto en clientes.
+
+Lo que sale en este tag es exactamente `v1.1.1` más el arreglo. Por eso el paso 1 no es un
+trámite: si `main` ya traía algo más, el hotfix lo mandaría a producción sin que nadie lo hubiera
+liberado.
+
 ## Las ramas que existen
 
 | Rama | Vida | Sale de | Vuelve a | Qué representa |
@@ -102,6 +140,7 @@ vuelve a empaquetar código que ya se había reemplazado.
 | Dejar la rama viva después del merge | Regla 3 |
 | Escribir el número de versión a mano | Lo calcula la herramienta (sección 16.1) |
 | Mover, borrar o reutilizar un tag publicado | Un tag publicado es inmutable (sección 12.4) |
+| Tags con el ambiente o la fecha en el nombre (`releaseQA-…`, `prod-…`) | Un tag es una versión: `vX.Y.Z` o `vX.Y.Z-rc.N`. El ambiente lo dice el registro de despliegues, y el ruleset `release-tags-controlados` solo protege los tags `v*` (sección 12.4) |
 
 ## Validar tus commits en CI
 
