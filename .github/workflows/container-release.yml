@@ -1,0 +1,273 @@
+# Reusable workflow: construye UNA vez y promueve el mismo artefacto (ENG-STD-001 12.2, 12.6).
+#
+# Traduce la ref de git a una version SemVer inmutable. Ninguna rama se mapea a un ambiente
+# por si misma: el ambiente se deriva del CANAL de la version.
+#
+#   ref                        version                         canal    ambiente sugerido
+#   develop / feature/*        X.Y.Z-dev.<AAAAMMDD>.<sha7>     dev      dev
+#   release/X.Y.Z, hotfix/...  X.Y.Z-rc.N                      rc       qa
+#   tag vX.Y.Z (en main)       X.Y.Z  (re-tag del rc, sin build) stable  prod
+#   main                       nada: main solo recibe releases ya construidos; publica el tag
+#
+# Reglas que implementa:
+#   - El tag vX.Y.Z NO compila. Busca la imagen del mismo arbol de git (squash-merge de
+#     release/* a main deja el mismo arbol) y exige que sea un X.Y.Z-rc.N. Si no existe, falla:
+#     "solo -rc.N y estables son promovibles" (12.6.2 regla 3).
+#   - Un arbol ya construido no se reconstruye: se re-taggea (excepto -dev -> -rc, que la norma
+#     obliga a reconstruir desde release/*).
+#   - Nunca sobrescribe un tag de version: N se elige como el primer -rc.N libre.
+#   - Etiquetas OCI con version, commit y arbol: el artefacto es trazable a su commit (12.6.5).
+#
+# Uso (una imagen, Dockerfile en la raiz):
+#
+#   jobs:
+#     release:
+#       uses: GrupoRfacilEmpresarial/.github/.github/workflows/container-release.yml@main
+#       permissions: { contents: read, packages: write }
+#       secrets: inherit
+#
+# Varias imagenes del mismo repo (todas comparten version):
+#
+#       with:
+#         images: >-
+#           [{"name":"api","dockerfile":"src/Api/Dockerfile"},
+#            {"name":"web","context":"web","dockerfile":"web/Dockerfile","npm-secret":true}]
+
+name: container-release
+
+on:
+  workflow_call:
+    inputs:
+      images:
+        description: 'JSON: lista de {name, context, dockerfile, target, build-args, npm-secret}. name vacio = ghcr.io/<org>/<repo>'
+        type: string
+        default: '[{"name":""}]'
+      registry:
+        type: string
+        default: "ghcr.io"
+      tag-prefix:
+        description: "Prefijo de los tags de git (12.4)"
+        type: string
+        default: "v"
+      runs-on:
+        type: string
+        default: '"ubuntu-latest"'
+    secrets:
+      NPM_READ_TOKEN:
+        required: false
+    outputs:
+      version:
+        description: "Version SemVer resuelta (vacia si la ref no publica)"
+        value: ${{ jobs.version.outputs.version }}
+      channel:
+        description: "dev | rc | stable | none"
+        value: ${{ jobs.version.outputs.channel }}
+      environment:
+        description: "Ambiente sugerido para el canal: dev | qa | prod | vacio"
+        value: ${{ jobs.version.outputs.environment }}
+
+permissions:
+  contents: read
+  packages: write
+
+jobs:
+  version:
+    name: resolver version
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 5
+    outputs:
+      version: ${{ steps.v.outputs.version }}
+      channel: ${{ steps.v.outputs.channel }}
+      environment: ${{ steps.v.outputs.environment }}
+      base: ${{ steps.v.outputs.base }}
+      tree: ${{ steps.v.outputs.tree }}
+      owner: ${{ steps.v.outputs.owner }}
+      repo: ${{ steps.v.outputs.repo }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Login en el registro
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Calcular version y canal
+        id: v
+        env:
+          PREFIJO: ${{ inputs.tag-prefix }}
+          REGISTRY: ${{ inputs.registry }}
+          IMAGES: ${{ inputs.images }}
+        run: |
+          set -euo pipefail
+          semver='^(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)\.(0|[1-9][0-9]*)$'
+          tree=$(git rev-parse 'HEAD^{tree}')
+          sha7=$(git rev-parse --short=7 HEAD)
+          owner=$(printf '%s' "$GITHUB_REPOSITORY_OWNER" | tr '[:upper:]' '[:lower:]')
+          repo=$(printf '%s' "${GITHUB_REPOSITORY#*/}" | tr '[:upper:]' '[:lower:]')
+          # La imagen ancla (primera de la lista) decide el N de -rc.N para todas.
+          ancla_nombre=$(printf '%s' "$IMAGES" | jq -r '.[0].name // ""')
+          ancla="$REGISTRY/$owner/$repo${ancla_nombre:+-$ancla_nombre}"
+
+          etiqueta_version() {  # version registrada en la imagen, o vacio si no existe
+            docker buildx imagetools inspect "$1" --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}' 2>/dev/null \
+              | head -1 || true
+          }
+
+          # Siguiente version propuesta desde los commits convencionales (12.2 paso 2).
+          siguiente() {
+            local ultimo base rango may men par
+            ultimo=$(git tag --list "${PREFIJO}[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | grep -Ev -- '-' | head -1 || true)
+            if [ -z "$ultimo" ]; then echo "0.1.0"; return; fi
+            base="${ultimo#"$PREFIJO"}"
+            IFS=. read -r may men par <<< "$base"
+            rango="$ultimo..HEAD"
+            if git log --format='%s%n%b' "$rango" | grep -Eq '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE:'; then
+              echo "$((may + 1)).0.0"
+            elif git log --format=%s "$rango" | grep -Eq '^feat(\([^)]*\))?:'; then
+              echo "$may.$((men + 1)).0"
+            else
+              echo "$may.$men.$((par + 1))"
+            fi
+          }
+
+          canal=none; version=""; ambiente=""; base=""
+          case "$GITHUB_REF" in
+            refs/tags/"$PREFIJO"*)
+              base="${GITHUB_REF#refs/tags/"$PREFIJO"}"
+              [[ "$base" =~ $semver ]] || { echo "::error::Tag $GITHUB_REF_NAME no es ${PREFIJO}X.Y.Z (12.4)."; exit 1; }
+              git fetch --quiet origin main
+              git merge-base --is-ancestor HEAD origin/main || {
+                echo "::error::El tag $GITHUB_REF_NAME no apunta a un commit de main (12.1 regla 4)."; exit 1; }
+              canal=stable; version="$base"; ambiente=prod ;;
+            refs/heads/release/*|refs/heads/hotfix/*)
+              base="${GITHUB_REF_NAME#*/}"
+              [[ "$base" =~ $semver ]] || { echo "::error::La rama $GITHUB_REF_NAME debe llamarse release/X.Y.Z o hotfix/X.Y.Z (12.1)."; exit 1; }
+              canal=rc; ambiente=qa
+              actual=$(etiqueta_version "$ancla:tree-$tree")
+              if [[ "$actual" == "$base"-rc.* ]]; then
+                version="$actual"   # mismo arbol ya construido como rc: no hay rc nuevo
+              else
+                n=1
+                while [ -n "$(etiqueta_version "$ancla:$base-rc.$n")" ]; do n=$((n + 1)); done
+                version="$base-rc.$n"
+              fi ;;
+            refs/heads/main|refs/heads/master)
+              echo "::notice::Push a main: no se construye. El release se publica con el tag ${PREFIJO}X.Y.Z sobre este commit." ;;
+            *)
+              base=$(siguiente)
+              canal=dev; ambiente=dev
+              version="$base-dev.$(date -u +%Y%m%d).$sha7" ;;
+          esac
+
+          {
+            echo "version=$version"; echo "channel=$canal"; echo "environment=$ambiente"
+            echo "base=$base"; echo "tree=$tree"; echo "owner=$owner"; echo "repo=$repo"
+          } >> "$GITHUB_OUTPUT"
+          {
+            echo "### Version"
+            echo "| ref | canal | version | ambiente sugerido |"
+            echo "|---|---|---|---|"
+            echo "| \`$GITHUB_REF_NAME\` | $canal | \`${version:-—}\` | ${ambiente:-—} |"
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  imagen:
+    name: imagen ${{ matrix.image.name || 'principal' }}
+    needs: version
+    if: needs.version.outputs.channel != 'none'
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: 30
+    strategy:
+      fail-fast: true
+      matrix:
+        image: ${{ fromJSON(inputs.images) }}
+    env:
+      VERSION: ${{ needs.version.outputs.version }}
+      CANAL: ${{ needs.version.outputs.channel }}
+      BASE: ${{ needs.version.outputs.base }}
+      TREE: ${{ needs.version.outputs.tree }}
+      IMAGEN: ${{ inputs.registry }}/${{ needs.version.outputs.owner }}/${{ needs.version.outputs.repo }}${{ matrix.image.name != '' && format('-{0}', matrix.image.name) || '' }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: docker/setup-buildx-action@v3
+
+      - name: Login en el registro
+        uses: docker/login-action@v3
+        with:
+          registry: ${{ inputs.registry }}
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Decidir build o re-tag
+        id: plan
+        run: |
+          set -euo pipefail
+          existente=$(docker buildx imagetools inspect "$IMAGEN:tree-$TREE" \
+            --format '{{ index .Image.Config.Labels "org.opencontainers.image.version" }}' 2>/dev/null | head -1 || true)
+          if docker buildx imagetools inspect "$IMAGEN:$VERSION" >/dev/null 2>&1; then
+            echo "accion=nada" >> "$GITHUB_OUTPUT"
+            echo "$IMAGEN:$VERSION ya existe: una version publicada es inmutable (3.1). No se toca."
+            exit 0
+          fi
+          case "$CANAL" in
+            stable)
+              if [[ "$existente" != "$BASE"-rc.* ]]; then
+                echo "::error::No hay un $BASE-rc.N construido para este arbol (encontrado: '${existente:-ninguno}'). Solo un -rc.N se promueve a estable (12.6.2 regla 3). ¿El squash de release/$BASE a main cambio el arbol?"
+                exit 1
+              fi
+              accion=retag ;;
+            rc)
+              # Un -dev no se promueve: se reconstruye desde release/* (12.6.2 regla 3).
+              if [[ "$existente" == "$VERSION" || "$existente" == "$BASE"-rc.* ]]; then accion=retag; else accion=build; fi ;;
+            dev)
+              if [ -n "$existente" ]; then accion=retag; else accion=build; fi ;;
+          esac
+          echo "accion=$accion" >> "$GITHUB_OUTPUT"
+          echo "Plan: $accion ($IMAGEN, existente='${existente:-ninguno}')"
+
+      # Re-tag por manifiesto: mismo digest, bit a bit. Las etiquetas OCI conservan la version
+      # con la que se construyo (el -rc.N), que es justamente la traza de su origen.
+      - name: Re-tag sin reconstruir
+        if: steps.plan.outputs.accion == 'retag'
+        run: |
+          docker buildx imagetools create \
+            --tag "$IMAGEN:$VERSION" \
+            --tag "$IMAGEN:sha-$GITHUB_SHA" \
+            "$IMAGEN:tree-$TREE"
+
+      - name: Build y push
+        if: steps.plan.outputs.accion == 'build'
+        uses: docker/build-push-action@v6
+        with:
+          context: ${{ matrix.image.context || '.' }}
+          file: ${{ matrix.image.dockerfile || format('{0}/Dockerfile', matrix.image.context || '.') }}
+          target: ${{ matrix.image.target || '' }}
+          push: true
+          # Manifiesto simple (sin attestation index) para poder leer sus etiquetas con imagetools.
+          provenance: false
+          # APP_VERSION y GIT_SHA alimentan GET /version (12.6.5). Un Dockerfile que no declare
+          # el ARG solo genera un aviso.
+          build-args: |
+            APP_VERSION=${{ env.VERSION }}
+            GIT_SHA=${{ github.sha }}
+            ${{ matrix.image.build-args || '' }}
+          secrets: ${{ matrix.image.npm-secret && format('npm_token={0}', secrets.NPM_READ_TOKEN) || '' }}
+          labels: |
+            org.opencontainers.image.version=${{ env.VERSION }}
+            org.opencontainers.image.revision=${{ github.sha }}
+            org.opencontainers.image.source=${{ github.server_url }}/${{ github.repository }}
+            org.rfacil.git-tree=${{ env.TREE }}
+          tags: |
+            ${{ env.IMAGEN }}:${{ env.VERSION }}
+            ${{ env.IMAGEN }}:tree-${{ env.TREE }}
+            ${{ env.IMAGEN }}:sha-${{ github.sha }}
+          cache-from: type=gha,scope=${{ matrix.image.name || 'main' }}
+          cache-to: type=gha,mode=max,scope=${{ matrix.image.name || 'main' }}
+
+      - name: Resumen
+        if: steps.plan.outputs.accion != ''
+        run: echo "- \`$IMAGEN:$VERSION\` (${{ steps.plan.outputs.accion }})" >> "$GITHUB_STEP_SUMMARY"
