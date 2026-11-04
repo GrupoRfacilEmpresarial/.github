@@ -51,8 +51,9 @@ Windows PowerShell 5.1, la versión que trae Windows Server.
   recibe lectura sobre los demás sitios que viven en la carpeta padre. Lo mismo con
   `<IIS_DEST_PATH>_data\<carpeta>` para las `persist-dirs` (por defecto `Logs`), que la
   aplicación escribe: ahí va el permiso de escritura.
-- Salida HTTPS a `github.com`, `ghcr.io`, `*.actions.githubusercontent.com` y
-  `pkg-containers.githubusercontent.com`. En producción no hace falta entrada: el runner consulta.
+- Salida HTTPS a `github.com`, `api.github.com` (la lista de aprobadores del resumen), `ghcr.io`,
+  `*.actions.githubusercontent.com` y `pkg-containers.githubusercontent.com`. En producción no
+  hace falta entrada: el runner consulta.
 - Para `service`: el servicio tiene que arrancar su ejecutable desde `IIS_DEST_PATH` (la junction),
   no desde una release. El
   nombre del servicio es una variable del Environment porque puede cambiar de un ambiente a otro.
@@ -127,8 +128,10 @@ una versión anterior, el caller también expone un `workflow_dispatch` con `env
 3. Cambio de la junction y arranque, según el `kind`.
 4. Smoke test: `HEALTH_URL` responde 2xx y `version-url` devuelve la versión desplegada.
 5. Se conservan las últimas 5 releases y nunca se borra la viva ni la anterior. Solo se podan las
-   carpetas `<versión>_<fecha>` que creó este script; el resto de la carpeta de releases no se
-   toca. `legacy_<fecha>` tampoco se poda: es la única copia de la carpeta tal como estaba antes
+   carpetas cuyo nombre es exactamente `<versión>_<fecha>` (con una versión que el script acepta);
+   cualquier otra cosa en la carpeta de releases, como una copia que alguien dejó a mano, no se
+   toca. Si una junction tiene ese nombre, se desvincula sin tocar su destino.
+   `legacy_<fecha>` tampoco se poda: es la única copia de la carpeta tal como estaba antes
    del primer despliegue (puede tener subidas, certificados o un `web.config` editado a mano), y
    quien opera el servidor la borra a mano cuando ya no la necesite.
 
@@ -141,6 +144,8 @@ configuración a mano.
 **Primer despliegue.** `IIS_DEST_PATH` puede ser una junction ya existente (a cualquier carpeta,
 incluido el esquema de otro despliegue) o una carpeta real. Con una junction, esa carpeta pasa a
 ser la release anterior y no se toca. Con una carpeta real y `IIS_SITE_NAME` definido, el script
+primero comprueba, con `appcmd list vdir`, que la raíz del sitio sea justamente `IIS_DEST_PATH`:
+si apunta a otra carpeta (un error de tipeo, una carpeta padre) aborta sin cambiar nada. Luego
 detiene el sitio, renombra la carpeta a `<ruta>_releases\legacy_<fecha>` (es el destino del
 rollback) y crea la junction. Es una vez por sitio. Con `kind: service` no hace falta
 `IIS_SITE_NAME`: se detiene el servicio, se renombra la carpeta, se crea la junction y se arranca
@@ -213,8 +218,14 @@ aprobadores del Environment, y si no hay ninguno, quien disparó la corrida.
 ## Versionado y seguridad
 
 El script corre con privilegios en el servidor. Por eso el workflow lo baja de este repositorio
-en un tag `workflows/vN` y rechaza una rama. Después de fusionar un cambio al script se crea un
-tag nuevo (o se mueve `vN` solo para correcciones compatibles) y los callers apuntan a ese mismo
+en un tag `workflows/vN` y rechaza una rama.
+
+**El primer tag.** El default de `org-ref` es `workflows/v1`, que no existe hasta que alguien lo
+crea. Cuando `main` ya tiene `deploy-iis.yml` y `scripts/deploy-iis.ps1`, hay que crearlo sobre
+el commit de `main` que contiene los dos: `git tag workflows/v1 <sha>` y
+`git push origin workflows/v1`. Mientras no exista, ningún caller puede ejecutar el workflow.
+
+Después de fusionar un cambio al script se crea un tag nuevo (o se mueve `vN` solo para correcciones compatibles) y los callers apuntan a ese mismo
 tag en `uses:`. Los tags `workflows/*` conviene protegerlos con un ruleset: hoy cualquiera con
 permiso de escritura podría moverlos.
 
