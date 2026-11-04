@@ -1,0 +1,196 @@
+# Reusable workflow: despliega una VERSION ya publicada en una VPS con docker compose.
+#
+# El servidor nunca compila: baja la imagen inmutable `<imagen>:<version>` que produjo
+# container-release.yml y recrea el stack. Lo que cambia entre ambientes es solo la
+# configuracion del GitHub Environment (12.6.2 regla 2):
+#
+#   secrets: CONTABO_HOST, CONTABO_USER, CONTABO_SSH_KEY, GHCR_PULL_USER, GHCR_PULL_TOKEN
+#   vars:    DEPLOY_PATH, CONTABO_SSH_PORT (opcional, 22)
+#
+# El compose del servidor DEBE referenciar la imagen como `...:${IMAGE_TAG}`; este workflow
+# exporta IMAGE_TAG=<version>. Proteger el Environment `prod` con revisores obligatorios: esa
+# aprobacion es el registro de quien autorizo la promocion (12.6.2 regla 4).
+#
+# Uso:
+#
+#   deploy:
+#     needs: release
+#     if: needs.release.outputs.environment != ''
+#     uses: GrupoRfacilEmpresarial/.github/.github/workflows/deploy-vps.yml@main
+#     with:
+#       environment: ${{ needs.release.outputs.environment }}
+#       version: ${{ needs.release.outputs.version }}
+#     secrets: inherit
+
+name: deploy-vps
+
+on:
+  workflow_call:
+    inputs:
+      environment:
+        description: "GitHub Environment destino (dev | qa | prod)"
+        type: string
+        required: true
+      version:
+        description: "Version SemVer a desplegar (tag de imagen inmutable)"
+        type: string
+        required: true
+      compose-file:
+        type: string
+        default: "docker-compose.deploy.yml"
+      extra-files:
+        description: "Archivos adicionales a copiar junto al compose, separados por coma"
+        type: string
+        default: ""
+      require-env-file:
+        description: "Exigir $DEPLOY_PATH/.env con permisos 600/400 antes de tocar el servidor"
+        type: boolean
+        default: true
+      health-service:
+        description: "Servicio de compose a sondear. Vacio = no sondea"
+        type: string
+        default: ""
+      health-url:
+        description: "URL a sondear DENTRO del contenedor de health-service"
+        type: string
+        default: "http://localhost:8080/health/ready"
+      version-url:
+        description: "URL publica de GET /version para verificar lo que quedo arriba (16.2). Vacio = no verifica"
+        type: string
+        default: ""
+      environment-url:
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+concurrency:
+  # Cortar un `compose up` a la mitad deja el stack indefinido: no se cancela, se encola.
+  group: deploy-${{ github.repository }}-${{ inputs.environment }}
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: deploy ${{ inputs.version }} -> ${{ inputs.environment }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    environment:
+      name: ${{ inputs.environment }}
+      url: ${{ inputs.environment-url || null }}
+    env:
+      VERSION: ${{ inputs.version }}
+    steps:
+      - name: Validar version
+        run: |
+          if ! printf '%s' "$VERSION" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc)\.[0-9A-Za-z.]+)?$'; then
+            echo "::error::'$VERSION' no es una version desplegable."; exit 1
+          fi
+          # Un -dev nunca llega a produccion (12.6.2 regla 3, 16.3).
+          if [ "${{ inputs.environment }}" = "prod" ] && printf '%s' "$VERSION" | grep -q -- '-'; then
+            echo "::error::Solo una version estable X.Y.Z se despliega en prod. Recibido: $VERSION."; exit 1
+          fi
+
+      - uses: actions/checkout@v4
+
+      - name: Verificar el .env del ambiente
+        if: inputs.require-env-file
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.CONTABO_HOST }}
+          username: ${{ secrets.CONTABO_USER }}
+          key: ${{ secrets.CONTABO_SSH_KEY }}
+          port: ${{ vars.CONTABO_SSH_PORT || 22 }}
+          script_stop: true
+          # Solo `if`: appleboy/ssh-action rompe los `case` al transportar el script.
+          script: |
+            set -e
+            ENV_FILE="${{ vars.DEPLOY_PATH }}/.env"
+            if [ ! -f "$ENV_FILE" ]; then echo "ERROR: no existe $ENV_FILE."; exit 1; fi
+            if [ ! -r "$ENV_FILE" ]; then echo "ERROR: $(whoami) no puede leer $ENV_FILE."; exit 1; fi
+            PERMS=$(stat -c '%a' "$ENV_FILE")
+            if [ "$PERMS" != "600" ] && [ "$PERMS" != "400" ]; then
+              echo "ERROR: $ENV_FILE tiene permisos $PERMS; se esperaba 600. Corregir con: chmod 600 $ENV_FILE"
+              exit 1
+            fi
+            echo "OK: $ENV_FILE con permisos $PERMS."
+
+      - name: Copiar compose a la VPS
+        uses: appleboy/scp-action@917f8b81dfc1ccd331fef9e2d61bdc6c8be94634 # v0.1.7
+        with:
+          host: ${{ secrets.CONTABO_HOST }}
+          username: ${{ secrets.CONTABO_USER }}
+          key: ${{ secrets.CONTABO_SSH_KEY }}
+          port: ${{ vars.CONTABO_SSH_PORT || 22 }}
+          source: ${{ inputs.extra-files != '' && format('{0},{1}', inputs.compose-file, inputs.extra-files) || inputs.compose-file }}
+          target: ${{ vars.DEPLOY_PATH }}
+          overwrite: true
+
+      - name: Bajar la version y recrear el stack
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.CONTABO_HOST }}
+          username: ${{ secrets.CONTABO_USER }}
+          key: ${{ secrets.CONTABO_SSH_KEY }}
+          port: ${{ vars.CONTABO_SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd "${{ vars.DEPLOY_PATH }}"
+            export IMAGE_TAG="${{ inputs.version }}"
+            COMPOSE="docker compose -f $(basename '${{ inputs.compose-file }}')"
+            echo "${{ secrets.GHCR_PULL_TOKEN }}" | docker login ghcr.io -u "${{ secrets.GHCR_PULL_USER }}" --password-stdin
+            $COMPOSE pull
+            $COMPOSE up -d --remove-orphans
+            docker logout ghcr.io
+            # Registro local de despliegues: que version, cuando y que corrida (12.6.5).
+            printf '%s\t%s\t%s\t%s\n' "$(date -u +%FT%TZ)" "${{ inputs.environment }}" "${{ inputs.version }}" \
+              "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}" >> deployments.log
+            docker image prune -f
+
+      - name: Sondear salud del servicio
+        if: inputs.health-service != ''
+        uses: appleboy/ssh-action@029f5b4aeeeb58fdfe1410a5d17f967dacf36262 # v1.0.3
+        with:
+          host: ${{ secrets.CONTABO_HOST }}
+          username: ${{ secrets.CONTABO_USER }}
+          key: ${{ secrets.CONTABO_SSH_KEY }}
+          port: ${{ vars.CONTABO_SSH_PORT || 22 }}
+          script_stop: true
+          script: |
+            set -e
+            cd "${{ vars.DEPLOY_PATH }}"
+            export IMAGE_TAG="${{ inputs.version }}"
+            COMPOSE="docker compose -f $(basename '${{ inputs.compose-file }}')"
+            for i in $(seq 1 30); do
+              if $COMPOSE exec -T ${{ inputs.health-service }} curl -fsS "${{ inputs.health-url }}" > /dev/null 2>&1; then
+                echo "Servicio sano tras ${i} intento(s)."; $COMPOSE ps; exit 0
+              fi
+              sleep 5
+            done
+            echo "El servicio no quedo sano. Logs recientes:"
+            $COMPOSE logs --tail 80 ${{ inputs.health-service }}
+            exit 1
+
+      - name: Verificar GET /version
+        if: inputs.version-url != ''
+        run: |
+          for i in $(seq 1 12); do
+            cuerpo=$(curl -fsS "${{ inputs.version-url }}" 2>/dev/null || true)
+            if printf '%s' "$cuerpo" | grep -Fq "\"$VERSION\""; then
+              echo "/version reporta $VERSION."; exit 0
+            fi
+            sleep 5
+          done
+          echo "::error::${{ inputs.version-url }} no reporta $VERSION. Respuesta: ${cuerpo:-vacia}"
+          exit 1
+
+      - name: Registro de despliegue
+        if: always()
+        run: |
+          {
+            echo "### Despliegue"
+            echo "| Ambiente | Version | Desplego | Autorizo | Estado |"
+            echo "|---|---|---|---|---|"
+            echo "| ${{ inputs.environment }} | \`$VERSION\` | pipeline #${{ github.run_number }} | @${{ github.triggering_actor }} | ${{ job.status }} |"
+          } >> "$GITHUB_STEP_SUMMARY"
