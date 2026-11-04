@@ -9,9 +9,10 @@
 name: ci
 
 on:
+  # Sin paths-ignore en pull_request: un check requerido que se omite por filtro de rutas
+  # queda pendiente y bloquea el merge de un PR solo de docs.
   pull_request:
     branches: [develop, main]
-    paths-ignore: ["**.md", "docs/**"]
   push:
     branches: [develop, "release/**", "hotfix/**"]
     tags: ["v*.*.*"]
@@ -20,8 +21,9 @@ on:
 
 concurrency:
   group: ci-${{ github.ref }}
-  # Las corridas de tag son releases: nunca se cancelan.
-  cancel-in-progress: ${{ !startsWith(github.ref, 'refs/tags/') }}
+  # Solo se cancelan las corridas de PR. Un push a develop/release o un tag puede estar
+  # desplegando, y cortar un `compose up` a la mitad deja el stack indefinido (deploy-vps.yml).
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 permissions:
   contents: read
