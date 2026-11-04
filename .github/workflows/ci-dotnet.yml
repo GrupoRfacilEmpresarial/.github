@@ -168,9 +168,14 @@ jobs:
       - name: Paquetes vulnerables
         if: inputs.vulnerability-check
         run: |
-          dotnet list $SOLUTION package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/vuln.json" || true
-          graves=$(jq '[.. | objects | select(has("vulnerabilities")) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length' "$RUNNER_TEMP/vuln.json" 2>/dev/null || echo 0)
-          todas=$(jq '[.. | objects | select(has("vulnerabilities")) | .vulnerabilities[]?] | length' "$RUNNER_TEMP/vuln.json" 2>/dev/null || echo 0)
+          # Si la auditoria falla (restore, red, solucion inexistente) el gate falla: nunca cuenta 0.
+          if ! dotnet list $SOLUTION package --vulnerable --include-transitive --format json > "$RUNNER_TEMP/vuln.json" \
+             || ! jq -e '.projects | type == "array"' "$RUNNER_TEMP/vuln.json" > /dev/null; then
+            echo "::error::No se pudo auditar los paquetes: dotnet list fallo o no devolvio JSON valido (seccion 13.5)."
+            exit 1
+          fi
+          graves=$(jq '[.. | objects | select(has("vulnerabilities")) | .vulnerabilities[]? | select(.severity == "High" or .severity == "Critical")] | length' "$RUNNER_TEMP/vuln.json")
+          todas=$(jq '[.. | objects | select(has("vulnerabilities")) | .vulnerabilities[]?] | length' "$RUNNER_TEMP/vuln.json")
           echo "Vulnerabilidades: $todas en total, $graves High/Critical."
           if [ "$graves" -gt 0 ]; then
             dotnet list $SOLUTION package --vulnerable --include-transitive
