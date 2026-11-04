@@ -2,7 +2,7 @@
 
 **Organización:** Rfacil
 **Documento:** ENG-STD-001 — Estándar de Versionado, Releases y Revisiones
-**Versión del documento:** 1.3.0
+**Versión del documento:** 1.4.0
 **Vigencia:** a partir de su aprobación
 **Alcance:** todo repositorio de código productivo o preproductivo de la organización
 
@@ -88,6 +88,9 @@ No se lee el documento completo. Se abre por el caso que se tiene enfrente:
 | Coordinar versiones entre back y front | §11 |
 | Saber qué rama usar o dónde nace el número | §12.1–§12.5 |
 | Entender por qué QA y DEMO no llevan rama | §12.6 |
+| Corregir algo urgente en producción | §9.5 y la «Ruta rápida: un hotfix» de `CONTRIBUTING.md` |
+| Desplegar a mano porque el repo no tiene pipeline | §12.6.8 y `templates/DESPLIEGUE-MANUAL.md` |
+| Compilar un front que lleva la URL del API incorporada | §12.6.9 |
 | Retomar una rama que quedó muy atrás | §12.7 |
 | Revisar el PR de alguien más | §13.4 (checklist) |
 | Autorizar la salida de un release | §14.1 |
@@ -133,6 +136,7 @@ Varias secciones de este documento describen prácticas que **hoy no aplican en 
 | §9.6 | **Embargo de seguridad y publicación de CVE** | exista API pública o clientes con contrato de notificación | corrección inmediata + aviso interno |
 | §17.1, §17.2 | **Los seis roles y el RACI completo** | exista **más de un equipo** de desarrollo | los roles se colapsan en tres: Version Owner, Tech Lead y Release Manager (este último puede rotar) |
 | §14.1 | **Go/No-Go con junta formal y 5+ participantes** | el release sea **mayor** | los menores y parches se autorizan de forma asincrónica en el ticket, con los mismos criterios |
+| §12.6.2 regla 4 | **La promoción a cada ambiente la ejecuta el pipeline** | el repositorio **tenga pipeline de despliegue** | despliegue manual controlado según §12.6.8, sin una excepción por despliegue |
 | §12.6.3 | **Ambientes efímeros por rama** | la cola por el ambiente de QA se vuelva un cuello de botella medible | se coordina el uso de QA y se rotula quién lo tiene |
 | §11.9 | **Herramientas de monorepo** (`changesets`, tags con prefijo) | se adopte un monorepo | repos separados con `semantic-release` |
 
@@ -712,14 +716,16 @@ Se emite en cuanto hay una corrección validada. No requiere ventana ni aviso. *
 
 Definición: corrección urgente sobre lo que está en producción **ahora**, sin arrastrar todo lo que ya se acumuló en `develop`.
 
+**Precondición.** Antes del paso 1, `main` **DEBE** coincidir con el tag que está en producción (`git diff --stat v2.7.4 origin/main` sale vacío). Si no coincide, `main` contiene algo que producción no tiene (§12.1, regla 4) y el hotfix lo mandaría a producción sin que nadie lo hubiera liberado: el Version Owner decide primero si se libera o se revierte lo que sobra.
+
 Procedimiento **OBLIGATORIO**:
 
 1. Crear `hotfix/2.7.5` **a partir del tag `v2.7.4`** que está en producción, no de `develop`.
 2. Cambio mínimo y quirúrgico. **PROHIBIDO** aprovechar el hotfix para colar refactors, mejoras o features.
 3. PR con al menos un aprobador; en incidente severo se admite aprobación posterior (dentro de 24 h) documentada en el incidente.
 4. Smoke test en staging. Si el incidente impide esperar, se registra la excepción (§17.3).
-5. Merge a `main`, tag `v2.7.5`, despliegue.
-6. **Back-merge obligatorio a `develop` y a toda rama `release/*` abierta.** Omitir este paso hace que el bug reaparezca en el siguiente release; es el error más común del proceso.
+5. Merge a `main` (con squash, el único método que admite el ruleset de la organización), tag `v2.7.5` sobre el commit resultante, despliegue.
+6. **Back-merge obligatorio a `develop` y a toda rama `release/*` abierta.** Omitir este paso hace que el bug reaparezca en el siguiente release; es el error más común del proceso. Bajo squash se hace con un PR de sincronía de `main` a `develop`, el mismo día (`CONTRIBUTING.md`).
 7. Registro del incidente y, si hubo impacto en clientes, post-mortem (§14.3).
 
 ### 9.6 Release de seguridad
@@ -1055,9 +1061,11 @@ Este es el punto de mayor confusión en GitFlow. La secuencia es:
 4. Correcciones de bloqueantes → -rc.2, -rc.3.
    PROHIBIDO agregar features en esta rama.
 5. Aprobación de release (§14.1).
-6. Merge a main (no fast-forward), tag anotado v3.2.0, despliegue.
-                                                  (el número se publica)
-7. Back-merge de release/3.2.0 a develop.
+6. Merge a main (squash: el ruleset de la organización no admite
+   otro método), tag anotado v3.2.0 sobre el commit resultante,
+   despliegue.                                    (el número se publica)
+7. Back-merge a develop: bajo squash, un PR de sincronía de main
+   a develop (CONTRIBUTING.md).
 8. Se elimina la rama release/.
 ```
 
@@ -1074,7 +1082,7 @@ Si durante `release/3.2.0` se detecta que un cambio ya integrado es en realidad 
 
 | Regla | Detalle |
 |---|---|
-| Formato | `v<versión SemVer>` en repos simples; `<paquete>/v<versión>` en monorepo |
+| Formato | `v<versión SemVer>` en repos simples; `<paquete>/v<versión>` en monorepo. El nombre **NO DEBE** llevar ambiente ni fecha (`releaseQA-…`, `prod-…`): el ambiente lo dice el registro de despliegues (§12.6.5), no el tag |
 | Tipo | anotado (`git tag -a`) y **DEBERÍA** estar firmado (`-s`) |
 | Contenido del mensaje | resumen del release y enlace al CHANGELOG |
 | Inmutabilidad | **PROHIBIDO** mover, borrar o reutilizar un tag publicado |
@@ -1120,7 +1128,7 @@ Reglas **OBLIGATORIAS**:
 1. El artefacto se construye **una sola vez** por versión. **PROHIBIDO** recompilar por ambiente: si se recompila, lo que se probó no es lo que se liberó y el número de versión pierde su significado.
 2. Lo único que cambia entre ambientes es la **configuración externa** (variables de entorno, secretos, endpoints). **PROHIBIDO** que el artefacto contenga lógica condicionada al nombre del ambiente para alterar su comportamiento funcional.
 3. Solo los **pre-releases `-rc.N`** y las **versiones estables** son promovibles a producción. Un build `-dev.*` **NO DEBE** llegar nunca a producción, aunque haya pasado todas las pruebas: se mergea a `develop` y se reconstruye como `-rc.N` desde `release/*`.
-4. La promoción **DEBE** ejecutarla el pipeline, con registro de quién la autorizó. **PROHIBIDO** el despliegue manual desde la máquina de una persona.
+4. La promoción **DEBE** ejecutarla el pipeline, con registro de quién la autorizó. **PROHIBIDO** el despliegue manual desde la máquina de una persona. Mientras el repositorio no tenga pipeline de despliegue, aplica el despliegue manual controlado de §12.6.8.
 
 #### 12.6.3 Qué ejecuta cada ambiente
 
@@ -1167,7 +1175,7 @@ También legítimo: corre `5.0.0-rc.2` para mostrar funcionalidad próxima. Sigu
 | Cherry-pick directo a una rama de ambiente | genera código que nunca pasó por `develop`: el mismo defecto reaparece en el siguiente release |
 | Recompilar el artefacto por ambiente | lo probado deja de ser idéntico a lo liberado |
 | Aplicar un hotfix sobre el ambiente de QA o DEMO | el fix no llega a `main` ni a `develop`; se pierde |
-| Desplegar desde la máquina de una persona | sin trazabilidad ni autorización registrada |
+| Desplegar un build armado en la máquina de una persona, o desde una rama | no hay forma de saber qué commit corre. No es lo mismo que el despliegue manual controlado de §12.6.8, que copia el artefacto del tag y deja registro |
 | Un ambiente sin `/version` o sin registro | ningún resultado de prueba obtenido ahí es concluyente |
 | "En QA está el build de ayer, creo" | síntoma de los dos anteriores |
 | Promover a producción un build `-dev.*` | no pasó por `release/*` ni por estabilización |
@@ -1178,6 +1186,35 @@ También legítimo: corre `5.0.0-rc.2` para mostrar funcionalidad próxima. Sigu
 - QA y DEMO **no necesitan ninguna rama**; reciben artefactos versionados por promoción.
 - Que los cuatro ambientes estén en versiones distintas es **normal**, no un desvío.
 - La regla que aplica a todos por igual: **lo que corre ahí tiene versión, es trazable a un commit y está registrado.**
+
+#### 12.6.8 Despliegue manual controlado (transitorio)
+
+> **⏸ Parcialmente inactiva (§0.5).** La regla 4 del §12.6.2 (la promoción la ejecuta el pipeline) se activa, repositorio por repositorio, el día que ese repositorio tenga pipeline de despliegue. Mientras no lo tenga, el despliegue manual es válido si cumple esta sección, y **no** requiere una excepción por despliegue (§17.3): una regla que obliga a una excepción por cada despliegue está mal diseñada (§0.1).
+
+Lo que **no** se relaja: lo que se despliega es el artefacto de un tag (§12.6.2 regla 3, §12.6.5 regla 1). Un build de rama o de una copia de trabajo sigue siendo un incidente de proceso y sí requiere excepción.
+
+Condiciones, todas **OBLIGATORIAS**:
+
+1. **Origen.** El artefacto se compila desde un checkout limpio del tag (`git status` sin cambios), o lo compila el CI. **PROHIBIDO** compilar desde la copia de trabajo de una persona.
+2. **Una sola compilación por versión.** El artefacto se publica en el GitHub Release del tag, con el hash de cada archivo o del zip en las notas. Se despliega ese artefacto, no uno recompilado.
+3. **Respaldo previo.** Antes de copiar se respalda el sitio actual con su configuración de ambiente intacta, y se anota la ruta del respaldo.
+4. **La configuración de ambiente no se toca.** No se sobrescribe ni se edita dentro del artefacto (§12.6.2 regla 2; para front-ends, §12.6.9).
+5. **Verificación posterior.** El hash de los archivos desplegados coincide con el del artefacto (se excluyen los logs y la configuración de ambiente), la versión visible es la del tag (`/version`, o la versión del ensamblado) y el smoke test del §14.2 pasa.
+6. **Registro.** Se anota en el Release del tag, con `templates/DESPLIEGUE-MANUAL.md`: ambiente, fecha y hora (UTC), quién desplegó, quién autorizó, resultado de la verificación y ruta del respaldo. Es el registro de despliegues del §12.6.5 mientras no lo llene un pipeline.
+7. **Rollback descrito.** El Release dice cómo se revierte (restaurar el respaldo o redesplegar el artefacto del tag anterior). Si algo falla en la verificación, se revierte antes de investigar (§14.2).
+
+Autoriza quien autoriza ese tipo de release en §9.1; en un hotfix, la aprobación puede ser posterior (§9.5).
+
+**Salida del régimen.** Cada repositorio sin pipeline de despliegue se lista en la revisión trimestral (§14.3) con una fecha objetivo para tenerlo. Sin fecha objetivo vigente, este régimen deja de aplicarle y vuelve la regla 4 completa.
+
+#### 12.6.9 Front-ends con configuración incorporada al compilar
+
+Un front (por ejemplo, con Vite) incorpora al compilar valores como la URL del API: el artefacto queda atado al ambiente para el que se compiló, y la regla de compilar una sola vez (§12.6.2, reglas 1 y 2) no se puede cumplir al pie de la letra. Se cumple así, en orden de preferencia:
+
+1. **Configuración en tiempo de ejecución (RECOMENDADA).** El front lee las URLs de un archivo externo (por ejemplo `config.json`) que vive en el servidor, fuera del artefacto. Un solo artefacto sirve a todos los ambientes.
+2. **Un artefacto por ambiente, del mismo tag (transitoria, hasta tener la anterior).** Se compila una vez por ambiente desde el mismo tag, con archivos de ambiente versionados (`.env.qa`, `.env.prod`: contienen URLs, nunca secretos) elegidos por modo (`vite build --mode prod`). Cada zip se publica en el Release del tag con el ambiente en el nombre del archivo (`dist-v1.4.0-prod.zip`), no en el tag.
+
+**PROHIBIDO** editar a mano un archivo versionado (`.env.production`, por ejemplo) antes de compilar para otro ambiente: el artefacto deja de ser reproducible desde el tag y nadie puede comprobar qué URLs lleva.
 
 ### 12.7 Ramas divergentes de larga vida: prevención y rescate
 
@@ -1561,7 +1598,7 @@ Si algo falla en esta lista, se ejecuta el rollback **antes** de investigar. Pri
 |---|---|
 | Después de **todo** rollback o hotfix de severidad alta | post-mortem sin culpables: por qué el control no lo detectó, qué control falta, qué se automatiza |
 | Mensual | releases del mes: proporción de hotfixes sobre el total, tiempo medio de revisión de PR, cuántos breaking changes se detectaron en PR contra cuántos aparecieron en el release |
-| Trimestral | cumplimiento del estándar: repos sin `CONTRACT.md`, repos en `0.x` con más de 3 meses en producción, tags fuera de convención, versiones mayores de API activas de más, deprecaciones vencidas sin retirar, excepciones otorgadas, inventario de ramas y archivos (§12.7.10), versiones congeladas en ambientes no productivos (§12.6.5) |
+| Trimestral | cumplimiento del estándar: repos sin `CONTRACT.md`, repos en `0.x` con más de 3 meses en producción, tags fuera de convención, versiones mayores de API activas de más, deprecaciones vencidas sin retirar, excepciones otorgadas, repositorios sin pipeline de despliegue y su fecha objetivo (§12.6.8), inventario de ramas y archivos (§12.7.10), versiones congeladas en ambientes no productivos (§12.6.5) |
 
 Indicadores **DEBERÍAN** medirse y publicarse:
 
@@ -1671,6 +1708,7 @@ Editar la versión a mano en `package.json` está **PROHIBIDO** en ramas protegi
 | Todo ambiente reporta versión en `/version` y coincide con el registro de despliegues (§12.6.5) | diaria | alerta al Release Manager |
 | Toda versión congelada en un ambiente no productivo tiene fecha de revisión vigente | mensual | ticket obligatorio |
 | Ningún artefacto `-dev.*` desplegado en producción | en cada despliegue | bloquea |
+| Todo despliegue manual tiene su registro y la verificación de hash en el Release del tag (§12.6.8) | en cada despliegue | alerta al Release Manager |
 
 ---
 
@@ -1947,7 +1985,7 @@ AUTORIZACIÓN
 [ ] Ventana acordada; guardia identificada
 
 PUBLICACIÓN
-[ ] Merge a main (no fast-forward)
+[ ] Merge a main (squash)
 [ ] Tag anotado y firmado creado por el pipeline
 [ ] Artefactos publicados; alias de contenedor actualizados
 [ ] Se promovió el MISMO artefacto validado; no se recompiló (§12.6.2)
@@ -1961,7 +1999,7 @@ VERIFICACIÓN
 [ ] Notas de release publicadas y comunicado enviado
 
 CIERRE
-[ ] Back-merge a develop y a release/* abiertas
+[ ] Sincronía a develop (PR de main a develop) y a release/* abiertas
 [ ] Rama release/hotfix eliminada
 [ ] Tickets de retiro de deprecaciones agendados
 [ ] Si hubo rollback o hotfix: post-mortem agendado
@@ -2053,6 +2091,12 @@ No. Es la excepción que degrada el proceso. El feature espera al siguiente rele
 **Tenemos ambientes de QA y DEMO que no siguen ni a `main` ni a `develop`. ¿Necesitamos una rama para cada uno?**
 No. Los ambientes ejecutan **versiones**, no ramas: reciben artefactos versionados por promoción. Que QA, DEMO y producción estén en versiones distintas es normal y no viola nada. Lo obligatorio es que cada ambiente reporte su versión en `/version` y aparezca en el registro de despliegues. Ver §12.6, y en particular §12.6.4 para los tres casos típicos.
 
+**Nuestro servidor QA se despliega a mano con lo que hay en `main`. ¿Es válido?**
+No. `main` es exactamente lo que está en producción (§12.1), no «lo de QA». A QA llega un `-rc.N` compilado desde `release/*`, o un `-dev.*` desde `develop` para validar algo aislado (§12.6.3). Si hoy QA se alimenta de `main`, el riesgo concreto es que un hotfix sobre `main` mande a producción lo que se estaba probando; la precondición del §9.5 existe para detectarlo.
+
+**Mi repo no tiene pipeline de despliegue. ¿Cada despliegue necesita una excepción?**
+No, mientras se cumpla §12.6.8: artefacto compilado desde un checkout limpio del tag, publicado en el Release, respaldo previo, verificación por hash y registro en el Release con `templates/DESPLIEGUE-MANUAL.md`. Una excepción solo hace falta si se despliega algo que no es el artefacto de un tag.
+
 **¿DEMO puede quedarse congelada en una versión vieja?**
 Sí, si es una decisión con dueño, motivo y **fecha de revisión** registrados. Sin fecha de revisión deja de ser decisión y se vuelve deuda (§12.6.5, regla 4).
 
@@ -2094,5 +2138,6 @@ Solo si es un `-rc.N` construido desde `release/*`. Un build `-dev.*` de una ram
 | 1.1.0 | 2026-08-24 | Cesar Villegas | Se agrega §12.6 (ambientes, promoción de artefactos y su relación con las ramas). Se precisa la regla 4 del §12.1 y se agrega la regla 5. Nuevos controles en §16.3, entradas de glosario y FAQ. |
 | 1.2.0 | 2026-08-28 | Cesar Villegas | Se agrega §12.7 (ramas divergentes de larga vida: prevención, semáforo de divergencia, política de archivado y procedimiento de rescate). Nuevos controles en §16.3, revisión de inventario en §14.3, entradas de glosario y FAQ. |
 | 1.3.0 | 2026-08-28 | Cesar Villegas | Se agrega §0 (cómo usar el documento): las 12 reglas de práctica diaria, índice por situación, niveles de cumplimiento por repositorio y tabla de reglas con condición de activación. Se marcan como inactivas o parcialmente inactivas §9.6, §11.6, §11.8, §14.1, §15.1, §15.2, §17.1 y §17.2. |
+| 1.4.0 | 2026-11-04 | Rodrigo Zaldívar | Se agrega la precondición del hotfix (§9.5) y se alinean §9.5, §12.2 y el Anexo E con el merge por squash que impone el ruleset de la organización. Se agrega la regla de nombre de tag (§12.4). Se agregan §12.6.8 (despliegue manual controlado, transitorio) y §12.6.9 (front-ends con configuración incorporada al compilar), y se marca como parcialmente inactiva la regla 4 de §12.6.2 en §0.5. Nuevos controles en §16.3, revisión trimestral en §14.3, entradas en el índice de §0.3 y en la FAQ. Motivo: EXC-2026-013 dejó dicho que sin pipeline cada despliegue volvería a incumplir §12.6.2 regla 4 y que no convenía acumular una excepción por despliegue (§0.1, §17.3). |
 
 **Próxima revisión programada:** trimestral, junto con la auditoría de cumplimiento del §14.3.

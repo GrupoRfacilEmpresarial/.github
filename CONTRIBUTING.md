@@ -1,6 +1,6 @@
 # Cómo se trabaja en los repositorios de Rfacil
 
-Este documento publica las reglas de ramas de **ENG-STD-001 v1.3.0, sección 12.1**. No inventa
+Este documento publica las reglas de ramas de **ENG-STD-001 v1.4.0, sección 12.1**. No inventa
 nada: la norma completa está en [`docs/ENG-STD-001.md`](docs/ENG-STD-001.md). Acá está lo que
 necesitás tener a mano todos los días.
 
@@ -67,7 +67,9 @@ corre en producción, nunca de `develop`, y lleva solo el arreglo.
    incidente. Se mergea con squash, como todo.
 5. **Tag sobre `main`** (`v1.1.2`), con su Release en GitHub y el artefacto adjunto. Los tags `v*`
    solo los crea quien tiene permiso en el ruleset `release-tags-controlados`.
-6. **Despliegue** del artefacto de ese tag y smoke test (sección 14.2).
+6. **Despliegue** del artefacto de ese tag y smoke test (sección 14.2). Si el repo no tiene
+   pipeline de despliegue, es un despliegue manual controlado: sección 12.6.8 y
+   [`templates/DESPLIEGUE-MANUAL.md`](templates/DESPLIEGUE-MANUAL.md).
 7. **Sincronía a `develop` el mismo día**, y a toda `release/*` abierta (sección siguiente).
 8. **Registro del incidente**; post-mortem si hubo impacto en clientes.
 
@@ -139,6 +141,8 @@ vuelve a empaquetar código que ya se había reemplazado.
 | Push directo a `main` o `develop` | Regla 1 |
 | Dejar la rama viva después del merge | Regla 3 |
 | Escribir el número de versión a mano | Lo calcula la herramienta (sección 16.1) |
+| Editar a mano `.env.production` (o cualquier archivo versionado) antes de compilar para otro ambiente | El artefacto deja de ser reproducible desde el tag. La configuración por ambiente va fuera del artefacto o en archivos de ambiente versionados (sección 12.6.9) |
+| Desplegar un build armado en tu máquina o desde una rama | No hay forma de saber qué commit corre. Sin pipeline, se despliega a mano **el artefacto del tag** (sección 12.6.8) |
 | Mover, borrar o reutilizar un tag publicado | Un tag publicado es inmutable (sección 12.4) |
 | Tags con el ambiente o la fecha en el nombre (`releaseQA-…`, `prod-…`) | Un tag es una versión: `vX.Y.Z` o `vX.Y.Z-rc.N`. El ambiente lo dice el registro de despliegues, y el ruleset `release-tags-controlados` solo protege los tags `v*` (sección 12.4) |
 
@@ -191,6 +195,8 @@ contrato, revisiones y CHANGELOG siguen igual.
 | Decidir si un cambio es mayor, menor o parche | secciones 5 y 6 |
 | Escribir el mensaje de commit | sección 7 |
 | Retomar una rama que quedó muy atrás | sección 12.7 |
+| Desplegar a mano porque el repo no tiene pipeline | sección 12.6.8 |
+| Compilar un front que lleva la URL del API incorporada | sección 12.6.9 |
 | Revisar el PR de alguien más | sección 13.4 |
 | Pedir una excepción | sección 17.3 |
 

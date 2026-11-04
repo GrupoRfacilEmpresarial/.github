@@ -5,7 +5,7 @@ comunitaria que el resto de los repositorios hereda, las plantillas del estánda
 workflows reutilizables.
 
 La norma que gobierna todo esto es **ENG-STD-001 — Estándar de Versionado, Releases y
-Revisiones**, v1.3.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs/ENG-STD-001.md).
+Revisiones**, v1.4.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs/ENG-STD-001.md).
 
 ## Qué hay acá
 
@@ -17,6 +17,7 @@ Revisiones**, v1.3.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs
 | `templates/CONTRACT.md` | Plantilla de contrato público (Anexo B) | No, se copia |
 | `templates/CHANGELOG.md` | Plantilla de changelog (Anexo C) | No, se copia |
 | `templates/commitlint.config.js` | Config opcional, solo para repos con Node | No, se copia |
+| `templates/DESPLIEGUE-MANUAL.md` | Registro de despliegue manual, para el Release del tag (sección 12.6.8) | No, se copia |
 | `docs/exceptions/` | Excepciones registradas según la sección 17.3 | — |
 
 ## Validar Conventional Commits en tu repo
