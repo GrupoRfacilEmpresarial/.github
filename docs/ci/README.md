@@ -65,7 +65,11 @@ Ya **no** se publican tags móviles `develop`/`qa`/`prod`.
    *deployment branches and tags* a `v*`.
 5. Crear las etiquetas `semver:major`, `semver:minor`, `semver:patch`, `semver:none`.
 6. Si el repo es nivel 2+, tener `CHANGELOG.md` (plantilla en `templates/`).
-7. Marcar como *required status checks* en el ruleset: `gobierno / pr / *`, `ci / calidad / *`.
+7. Marcar como *required status checks* en el ruleset los jobs de los workflows `gobierno` y
+   `ci`, copiando el nombre tal cual aparece en la pestaña *Checks* de un PR tras la primera
+   corrida: el ruleset exige el nombre exacto y no admite comodines. Con los valores por
+   defecto, la validación de nombre de rama y la de tamaño solo avisan; para que bloqueen,
+   pasar `enforce-branch-names: true` y `enforce-size: true` en `gobierno-pr.yml`.
 8. Dockerfile: declarar `ARG APP_VERSION` y `ARG GIT_SHA` y exponerlos en `GET /version`.
 
 ## Cambios de comportamiento que hay que acordar antes de migrar
