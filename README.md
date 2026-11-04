@@ -16,13 +16,15 @@ Revisiones**, v1.4.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs
 | `.github/workflows/conventional-commits.yml` | Workflow reutilizable que valida la sección 7 | No, se invoca |
 | `.github/workflows/pr-checks.yml` | Gobierno del PR: título, `semver:*`, CHANGELOG, rama, tamaño, secretos | No, se invoca |
 | `.github/workflows/ci-dotnet.yml`, `ci-node.yml`, `ci-python.yml` | Calidad por stack (sección 13.5) | No, se invoca |
-| `.github/workflows/container-release.yml`, `deploy-vps.yml` | Build once / promote y despliegue por versión (sección 12.6) | No, se invoca |
+| `.github/workflows/container-release.yml`, `deploy-vps.yml`, `deploy-iis.yml` | Build once / promote y despliegue por versión a una VPS o a IIS (sección 12.6) | No, se invoca |
+| `scripts/deploy-iis.ps1` | Script que corre `deploy-iis.yml` en el servidor | No, lo baja el workflow |
 | `workflow-templates/` | Plantillas listas para copiar por tipo de proyecto | Aparecen en *Actions → New workflow* |
 | `docs/ci/` | Guía de adopción de CI/CD | — |
 | `templates/CONTRACT.md` | Plantilla de contrato público (Anexo B) | No, se copia |
 | `templates/CHANGELOG.md` | Plantilla de changelog (Anexo C) | No, se copia |
 | `templates/commitlint.config.js` | Config opcional, solo para repos con Node | No, se copia |
 | `templates/DESPLIEGUE-MANUAL.md` | Registro de despliegue manual, para el Release del tag (sección 12.6.8) | No, se copia |
+| `templates/Dockerfile.iis-api`, `Dockerfile.iis-spa` | Artefacto `FROM scratch` para `deploy-iis.yml` | No, se copia |
 | `docs/exceptions/` | Excepciones registradas según la sección 17.3 | — |
 
 ## Validar Conventional Commits en tu repo
