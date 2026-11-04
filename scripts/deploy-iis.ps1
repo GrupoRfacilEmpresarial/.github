@@ -87,9 +87,10 @@ function Copy-Package([string]$From, [string]$To, [string[]]$SkipFiles, [string[
 }
 
 function Remove-Release([string]$Path) {
-  # PersistDirs are junctions inside a release. Unlink every junction first, without walking into
-  # it, so that the recursive delete (which in Windows PowerShell 5.1 can follow a junction) can
-  # never reach the shared data it points at.
+  # A release can be a junction itself (made by hand), and PersistDirs are junctions inside it. Unlink
+  # every junction without walking into it: the recursive delete below (in Windows PowerShell 5.1 it
+  # can follow a junction) must never reach the data a junction points at.
+  if (Test-IsJunction $Path) { Remove-Junction $Path; return }
   $pending = New-Object Collections.Generic.Queue[string]
   $pending.Enqueue($Path)
   while ($pending.Count) {
@@ -101,11 +102,10 @@ function Remove-Release([string]$Path) {
 }
 
 function Select-ReleasesToPrune([string[]]$Names, [string[]]$Protected, [int]$Keep) {
-  # Only folders named <version>_<14 digits> are ours. The newest $Keep and the protected ones
-  # (live and previous) stay; anything else in the folder is never touched. legacy_<stamp> is the
-  # only copy of a folder as it was before the first deploy: it is never pruned, an operator
-  # removes it by hand once it is no longer needed.
-  $ours = @($Names | Where-Object { $_ -match '_\d{14}$' -and $_ -notlike 'legacy_*' } | Sort-Object { $_.Substring($_.Length - 14) } -Descending)
+  # Only folders named <version>_<14 digits> are ours; anything else is never touched, including
+  # legacy_<stamp>, the only copy of a folder as it was before the first deploy (removed by hand).
+  # The newest $Keep and the protected ones (live and previous) stay.
+  $ours = @($Names | Where-Object { $_ -match '^[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc)\.[0-9A-Za-z.]+)?_\d{14}\z' } | Sort-Object { $_.Substring($_.Length - 14) } -Descending)
   $stay = @($Protected) + @($ours | Select-Object -First $Keep)
   return @($ours | Where-Object { $stay -notcontains $_ })
 }
@@ -113,8 +113,7 @@ function Select-ReleasesToPrune([string[]]$Names, [string[]]$Protected, [int]$Ke
 function Test-ApiPackage([string]$Dir) {
   $config = Join-Path $Dir 'web.config'
   if (-not (Test-Path -LiteralPath $config)) { throw 'The package has no web.config.' }
-  $xml = New-Object Xml.XmlDocument
-  $xml.Load($config)
+  $xml = New-Object Xml.XmlDocument; $xml.Load($config)
   $node = $xml.SelectSingleNode('//aspNetCore')
   if (-not $node) { throw 'web.config has no aspNetCore handler.' }
   # dotnet + ".\App.dll" (framework-dependent) or ".\App.exe" (self-contained).
@@ -132,14 +131,10 @@ function Add-DeployLog([string]$Root, [string]$Release, [string]$Result) {
 
 # ---- app offline page, IIS, services ----------------------------------------------------------
 function Set-AppOffline([string]$Dir) {
-  Set-Content -LiteralPath (Join-Path $Dir 'app_offline.htm') -Encoding Ascii `
-    -Value '<html><body><h1>Actualizando el sistema</h1><p>Volvemos en unos minutos.</p></body></html>'
+  Set-Content -LiteralPath (Join-Path $Dir 'app_offline.htm') -Encoding Ascii -Value '<html><body><h1>Actualizando el sistema</h1><p>Volvemos en unos minutos.</p></body></html>'
 }
 
-function Clear-AppOffline([string]$Dir) {
-  $file = Join-Path $Dir 'app_offline.htm'
-  if (Test-Path -LiteralPath $file) { Remove-Item -LiteralPath $file -Force }
-}
+function Clear-AppOffline([string]$Dir) { $f = Join-Path $Dir 'app_offline.htm'; if (Test-Path -LiteralPath $f) { Remove-Item -LiteralPath $f -Force } }
 
 function Invoke-AppCmd([string[]]$ArgList) {
   if (-not (Test-Path -LiteralPath $AppCmd)) { throw "appcmd.exe not found at '$AppCmd': is IIS installed?" }
@@ -281,6 +276,10 @@ function Invoke-Deploy {
   $migrating = (-not (Test-IsJunction $dest)) -and (Test-Path -LiteralPath $dest)
   if ($migrating -and $Kind -ne 'service' -and -not $SiteName) {
     throw "'$dest' is a real folder: the first deploy needs SiteName to stop the site and turn the folder into a junction."
+  }
+  if ($migrating -and $Kind -ne 'service') {  # a mistyped DestPath must not rename a folder the site does not serve
+    $served = [Environment]::ExpandEnvironmentVariables("$(@(Invoke-AppCmd @('list', 'vdir', "$SiteName/", '/text:physicalPath'))[0])".Trim()).TrimEnd('\')
+    if ($served -ne $dest) { throw "The root of site '$SiteName' is '$served', not '$dest': refusing to rename a folder the site does not serve." }
   }
 
   # 2. Build the release beside the live one. A failure here leaves the live release untouched.
