@@ -1,0 +1,183 @@
+# Reusable workflow: CI estandar para servicios Python (ENG-STD-001 13.5).
+#
+#   lint/formato   -> ruff check + ruff format --check
+#   type check     -> mypy (rutas configurables)
+#   pruebas        -> pytest con cobertura y umbral
+#   integracion    -> pytest -m integration contra un Postgres efimero (opcional)
+#   dependencias   -> pip-audit
+#
+# Instala el proyecto con `pip install -e ".[<extras>]"` (pyproject.toml). Si el repo solo
+# tiene requirements*.txt, usa esos archivos.
+#
+# Uso minimo:
+#
+#   jobs:
+#     python:
+#       uses: GrupoRfacilEmpresarial/.github/.github/workflows/ci-python.yml@main
+#       with:
+#         source-dirs: app
+
+name: ci-python
+
+on:
+  workflow_call:
+    inputs:
+      python-version:
+        description: "Version de Python. Se ignora si existe .python-version"
+        type: string
+        default: "3.13"
+      working-directory:
+        type: string
+        default: "."
+      install-extras:
+        description: "Extras de pyproject a instalar (ej: dev)"
+        type: string
+        default: "dev"
+      source-dirs:
+        description: "Directorios de codigo, separados por espacio (lint y cobertura)"
+        type: string
+        default: "app"
+      test-dirs:
+        type: string
+        default: "tests"
+      mypy-paths:
+        description: "Rutas para mypy separadas por espacio. Vacio = no corre mypy"
+        type: string
+        default: ""
+      coverage-threshold:
+        type: number
+        default: 80
+      integration-tests:
+        description: "Correr pytest -m integration contra Postgres efimero"
+        type: boolean
+        default: false
+      postgres-image:
+        type: string
+        default: "postgres:17-alpine"
+      migrate-command:
+        description: "Comando previo a las pruebas de integracion (ej: alembic upgrade head)"
+        type: string
+        default: ""
+      test-env:
+        description: "Variables para pytest, una KEY=valor por linea. Nunca secretos reales"
+        type: string
+        default: ""
+      audit:
+        description: "Bloquear si pip-audit encuentra vulnerabilidades"
+        type: boolean
+        default: true
+      runs-on:
+        type: string
+        default: '"ubuntu-latest"'
+      timeout-minutes:
+        type: number
+        default: 20
+
+permissions:
+  contents: read
+
+jobs:
+  python:
+    name: python (ruff, mypy, pytest, audit)
+    runs-on: ${{ fromJSON(inputs.runs-on) }}
+    timeout-minutes: ${{ inputs.timeout-minutes }}
+    defaults:
+      run:
+        shell: bash
+        working-directory: ${{ inputs.working-directory }}
+    env:
+      PIP_DISABLE_PIP_VERSION_CHECK: "1"
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Resolver version de Python
+        id: py
+        run: |
+          if [ -f .python-version ]; then echo "file=${{ inputs.working-directory }}/.python-version" >> "$GITHUB_OUTPUT"
+          else echo "file=" >> "$GITHUB_OUTPUT"; fi
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: ${{ steps.py.outputs.file == '' && inputs.python-version || '' }}
+          python-version-file: ${{ steps.py.outputs.file }}
+          cache: pip
+
+      - name: Instalar dependencias
+        run: |
+          python -m pip install --upgrade pip
+          if [ -f pyproject.toml ]; then
+            extras="${{ inputs.install-extras }}"
+            pip install -e ".${extras:+[$extras]}"
+          else
+            for f in requirements.txt requirements-dev.txt; do [ -f "$f" ] && pip install -r "$f"; done
+          fi
+          pip install ruff pytest-cov pip-audit
+          [ -n "${{ inputs.mypy-paths }}" ] && pip install mypy || true
+
+      - name: Lint y formato
+        run: |
+          ruff check ${{ inputs.source-dirs }} ${{ inputs.test-dirs }}
+          ruff format --check ${{ inputs.source-dirs }} ${{ inputs.test-dirs }}
+
+      - name: Type check
+        if: inputs.mypy-paths != ''
+        run: mypy ${{ inputs.mypy-paths }}
+
+      - name: Exportar variables de prueba
+        env:
+          TEST_ENV: ${{ inputs.test-env }}
+        run: |
+          while IFS= read -r linea; do
+            [ -n "$linea" ] && echo "$linea" >> "$GITHUB_ENV"
+          done <<< "$TEST_ENV"
+
+      - name: Pruebas unitarias con cobertura
+        run: |
+          cov=""
+          for d in ${{ inputs.source-dirs }}; do cov="$cov --cov=$d"; done
+          pytest -m "not integration" $cov \
+            --cov-report=term-missing \
+            --cov-report=xml:coverage.xml \
+            --cov-fail-under=${{ inputs.coverage-threshold }}
+
+      # Postgres efimero con docker run en vez de `services:`: un service no se puede
+      # encender o apagar segun un input del workflow reutilizable.
+      - name: Levantar Postgres efimero
+        if: inputs.integration-tests
+        run: |
+          docker run -d --name pg-ci -p 5432:5432 \
+            -e POSTGRES_DB=ci -e POSTGRES_USER=ci -e POSTGRES_PASSWORD=ci \
+            --health-cmd "pg_isready -U ci" --health-interval 2s --health-retries 30 \
+            ${{ inputs.postgres-image }}
+          for i in $(seq 1 30); do
+            [ "$(docker inspect -f '{{.State.Health.Status}}' pg-ci)" = "healthy" ] && exit 0
+            sleep 2
+          done
+          docker logs pg-ci; exit 1
+
+      - name: Migraciones
+        if: inputs.integration-tests && inputs.migrate-command != ''
+        env:
+          POSTGRES_URL: postgresql+psycopg://ci:ci@localhost:5432/ci
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+        run: ${{ inputs.migrate-command }}
+
+      - name: Pruebas de integracion
+        if: inputs.integration-tests
+        env:
+          POSTGRES_URL: postgresql+psycopg://ci:ci@localhost:5432/ci
+          DATABASE_URL: postgresql://ci:ci@localhost:5432/ci
+        run: pytest -m integration --no-cov
+
+      - name: Auditoria de dependencias
+        if: inputs.audit
+        run: pip-audit --skip-editable
+
+      - name: Subir cobertura
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: python-coverage
+          path: ${{ inputs.working-directory }}/coverage.xml
+          retention-days: 7
+          if-no-files-found: ignore

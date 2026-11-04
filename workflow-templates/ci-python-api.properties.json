@@ -1,0 +1,7 @@
+{
+  "name": "CI/CD Python API (ENG-STD-001)",
+  "description": "ruff, mypy, pytest con cobertura, integracion contra Postgres efimero y pip-audit; imagen inmutable promovida dev -> qa -> prod.",
+  "iconName": "octicon code",
+  "categories": ["Python", "Dockerfile"],
+  "filePatterns": ["pyproject\\.toml$", "requirements.*\\.txt$"]
+}
