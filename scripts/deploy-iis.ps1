@@ -105,7 +105,7 @@ function Select-ReleasesToPrune([string[]]$Names, [string[]]$Protected, [int]$Ke
   # Only folders named <version>_<14 digits> are ours; anything else is never touched, including
   # legacy_<stamp>, the only copy of a folder as it was before the first deploy (removed by hand).
   # The newest $Keep and the protected ones (live and previous) stay.
-  $ours = @($Names | Where-Object { $_ -match '^[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc)\.[0-9A-Za-z.]+)?_\d{14}\z' } | Sort-Object { $_.Substring($_.Length - 14) } -Descending)
+  $ours = @($Names | Where-Object { $_ -cmatch '^[0-9]+\.[0-9]+\.[0-9]+(-(dev|rc)\.[0-9A-Za-z.]+)?_[0-9]{14}\z' } | Sort-Object { $_.Substring($_.Length - 14) } -Descending)
   $stay = @($Protected) + @($ours | Select-Object -First $Keep)
   return @($ours | Where-Object { $stay -notcontains $_ })
 }
