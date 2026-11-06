@@ -119,15 +119,20 @@ jobs:
 
           # Siguiente version propuesta desde los commits convencionales (12.2 paso 2).
           siguiente() {
-            local ultimo base rango may men par
+            local ultimo base rango may men par cuerpos asuntos
             ultimo=$(git tag --list "${PREFIJO}[0-9]*.[0-9]*.[0-9]*" --sort=-v:refname | grep -Ev -- '-' | head -1 || true)
             if [ -z "$ultimo" ]; then echo "0.1.0"; return; fi
             base="${ultimo#"$PREFIJO"}"
             IFS=. read -r may men par <<< "$base"
             rango="$ultimo..HEAD"
-            if git log --format='%s%n%b' "$rango" | grep -Eq '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE:'; then
+            # El log se captura antes de filtrarlo. Con "git log | grep -q", grep cierra el pipe en el
+            # primer match, git puede morir por SIGPIPE (141) si todavia tiene salida por escribir y
+            # pipefail vuelve falso el if: se pierde el breaking. El here-string no pasa por un pipe.
+            cuerpos=$(git log --format='%s%n%b' "$rango")
+            asuntos=$(git log --format=%s "$rango")
+            if grep -Eq '^[a-z]+(\([^)]*\))?!:|^BREAKING[ -]CHANGE:' <<< "$cuerpos"; then
               echo "$((may + 1)).0.0"
-            elif git log --format=%s "$rango" | grep -Eq '^feat(\([^)]*\))?:'; then
+            elif grep -Eq '^feat(\([^)]*\))?:' <<< "$asuntos"; then
               echo "$may.$((men + 1)).0"
             else
               echo "$may.$men.$((par + 1))"
