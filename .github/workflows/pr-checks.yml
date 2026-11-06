@@ -91,7 +91,10 @@ jobs:
           breaking=false
           printf '%s' "$TITULO" | grep -Eq '^[a-z]+(\([^)]*\))?!:' && breaking=true
           # BREAKING CHANGE en cualquier commit del PR tambien cuenta (7.1).
-          if git log --format=%B "origin/${{ github.base_ref }}..HEAD" | grep -Eq '^BREAKING[ -]CHANGE:'; then
+          # El log se captura antes del grep: con "git log | grep -q" git puede morir por SIGPIPE (141)
+          # y pipefail vuelve falso el if. El here-string no pasa por un pipe.
+          cuerpos=$(git log --format=%B "origin/${{ github.base_ref }}..HEAD")
+          if grep -Eq '^BREAKING[ -]CHANGE:' <<< "$cuerpos"; then
             breaking=true
           fi
           echo "tipo=$tipo" >> "$GITHUB_OUTPUT"
