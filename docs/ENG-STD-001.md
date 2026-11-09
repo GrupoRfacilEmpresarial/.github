@@ -2,7 +2,7 @@
 
 **Organización:** Rfacil
 **Documento:** ENG-STD-001 — Estándar de Versionado, Releases y Revisiones
-**Versión del documento:** 1.4.0
+**Versión del documento:** 1.5.0
 **Vigencia:** a partir de su aprobación
 **Alcance:** todo repositorio de código productivo o preproductivo de la organización
 
@@ -93,6 +93,7 @@ No se lee el documento completo. Se abre por el caso que se tiene enfrente:
 | Compilar un front que lleva la URL del API incorporada | §12.6.9 |
 | Retomar una rama que quedó muy atrás | §12.7 |
 | Revisar el PR de alguien más | §13.4 (checklist) |
+| Saber quién aprueba e integra un PR, en qué plazos, o pedir un suplente | §13.1, §13.3 y la sección «Quién aprueba y quién integra» de `CONTRIBUTING.md` |
 | Autorizar la salida de un release | §14.1 |
 | Retirar un endpoint o un campo | §15 |
 | Montar la automatización | §16 |
@@ -684,7 +685,7 @@ Un "tipo de release" no cambia el formato del número: cambia **el proceso, los 
 | **Mayor** | `X+1.0.0` | `release/*` | Version Owner + Product + Ops | planificada, fuera de horario pico, con aviso ≥ 2 semanas | suite completa, contract testing, pruebas de migración y de rollback, revisión de seguridad, RC aprobado | guía de migración, CHANGELOG, notas al cliente, plan de rollback, comunicado |
 | **Menor** | `X.Y+1.0` | `release/*` | Tech Lead + Product | cadencia programada (p. ej. semanal) | suite completa, contract testing | CHANGELOG, notas de release |
 | **Parche** | `X.Y.Z+1` | `release/*` o `main` | Tech Lead | a demanda, en horario laboral | suite de regresión | CHANGELOG |
-| **Hotfix** | `X.Y.Z+1` | `hotfix/*` desde el tag productivo | Tech Lead + On-call (aprobación posterior admisible) | inmediata | pruebas del área afectada + smoke en staging | CHANGELOG, incidente registrado, back-merge a `develop` |
+| **Hotfix** | `X.Y.Z+1` | `hotfix/*` desde el tag productivo | Tech Lead + On-call (la autorización del despliegue puede ser posterior; la aprobación del PR no, §9.5) | inmediata | pruebas del área afectada + smoke en staging | CHANGELOG, incidente registrado, back-merge a `develop` |
 | **Seguridad** | `X.Y.Z+1` (o mayor si rompe) | `hotfix/*` o rama de soporte | Seguridad + Tech Lead | según severidad y embargo | escaneo de dependencias, verificación del vector | aviso de seguridad, CVE si aplica |
 | **Mantenimiento / LTS** | `X.Y.Z+1` sobre línea antigua | `support/X.Y` | Version Owner | según política de soporte (§15) | regresión de la línea soportada | CHANGELOG de la línea |
 | **Pre-release** | `X.Y.Z-alpha\|beta\|rc.N` | `develop` o `release/*` | Tech Lead | libre | según §8.1 | notas preliminares |
@@ -722,7 +723,7 @@ Procedimiento **OBLIGATORIO**:
 
 1. Crear `hotfix/2.7.5` **a partir del tag `v2.7.4`** que está en producción, no de `develop`.
 2. Cambio mínimo y quirúrgico. **PROHIBIDO** aprovechar el hotfix para colar refactors, mejoras o features.
-3. PR con al menos un aprobador; en incidente severo se admite aprobación posterior (dentro de 24 h) documentada en el incidente.
+3. PR aprobado por un aprobador oficial **antes** del merge (§13.3). El nivel R0 acelera la primera respuesta, no la aprobación: no hay aprobación posterior del PR ni bypass de emergencia.
 4. Smoke test en staging. Si el incidente impide esperar, se registra la excepción (§17.3).
 5. Merge a `main` (con squash, el único método que admite el ruleset de la organización), tag `v2.7.5` sobre el commit resultante, despliegue.
 6. **Back-merge obligatorio a `develop` y a toda rama `release/*` abierta.** Omitir este paso hace que el bug reaparezca en el siguiente release; es el error más común del proceso. Bajo squash se hace con un PR de sincronía de `main` a `develop`, el mismo día (`CONTRIBUTING.md`).
@@ -1203,7 +1204,7 @@ Condiciones, todas **OBLIGATORIAS**:
 6. **Registro.** Se anota en el Release del tag, con `templates/DESPLIEGUE-MANUAL.md`: ambiente, fecha y hora (UTC), quién desplegó, quién autorizó, resultado de la verificación y ruta del respaldo. Es el registro de despliegues del §12.6.5 mientras no lo llene un pipeline.
 7. **Rollback descrito.** El Release dice cómo se revierte (restaurar el respaldo o redesplegar el artefacto del tag anterior). Si algo falla en la verificación, se revierte antes de investigar (§14.2).
 
-Autoriza quien autoriza ese tipo de release en §9.1; en un hotfix, la aprobación puede ser posterior (§9.5).
+Autoriza quien autoriza ese tipo de release en §9.1; en un hotfix, la autorización del despliegue puede ser posterior (§9.1); la aprobación del PR no (§9.5, §13.3).
 
 **Salida del régimen.** Cada repositorio sin pipeline de despliegue se lista en la revisión trimestral (§14.3) con una fecha objetivo para tenerlo. Sin fecha objetivo vigente, este régimen deja de aplicarle y vuelve la regla 4 completa.
 
@@ -1447,14 +1448,21 @@ Las revisiones son el mecanismo que hace que el versionado sea real: es en el PR
 
 El nivel se determina por el **riesgo**, no por el tamaño del diff.
 
-| Nivel | Aplica a | Aprobadores mínimos | Requisitos adicionales | Tiempo objetivo de primera respuesta |
-|---|---|---|---|---|
-| **R1 — Ligera** | `docs`, `style`, `test`, `chore`, `ci`, cambios de copy, dependencias de desarrollo | 1 cualquiera del equipo | ninguno | 8 h laborales |
-| **R2 — Estándar** | `feat` y `fix` sin impacto en contrato; `semver:minor` y `semver:patch` | 1 revisor con contexto del módulo | checklist §13.4 completo | 8 h laborales |
-| **R3 — Crítica** | cualquier `semver:major`; cambios en contrato de API o esquema de eventos; migraciones de BD; autenticación/autorización; manejo de dinero, cobros o conciliación; datos personales; infraestructura; jobs con efectos irreversibles | **2 aprobadores**, uno de ellos el *Version Owner* o el tech lead del módulo | ADR, guía de migración si aplica, plan de rollback, revisión de seguridad, revisión de DBA si toca esquema, actualización de la matriz de compatibilidad (§11.5) | 24 h laborales |
-| **R0 — Emergencia** | hotfix de incidente activo (§9.5) | 1 aprobador, admite aprobación posterior ≤ 24 h | registro del incidente y revisión formal posterior obligatoria | inmediata |
+| Nivel | Aplica a | Aprobadores mínimos | Requisitos adicionales | Primera respuesta | Decisión |
+|---|---|---|---|---|---|
+| **R1 — Ligera** | `docs`, `style`, `test`, `chore`, `ci`, cambios de copy, dependencias de desarrollo | 1 aprobador oficial (§13.3) | ninguno | 4 h hábiles | 1 día hábil |
+| **R2 — Estándar** | `feat` y `fix` sin impacto en contrato; `semver:minor` y `semver:patch` | 1 aprobador oficial (§13.3) | checklist §13.4 completo | 4 h hábiles | 1 día hábil |
+| **R3 — Crítica** | cualquier `semver:major`; cambios en contrato de API o esquema de eventos; migraciones de BD; autenticación/autorización; manejo de dinero, cobros o conciliación; datos personales; infraestructura; jobs con efectos irreversibles | **2 aprobadores** (oficiales; en una suplencia, un suplente habilitado puede ser uno de los dos, §13.3), uno de ellos el *Version Owner* o el tech lead del módulo | ADR, guía de migración si aplica, plan de rollback, revisión de seguridad, revisión de DBA si toca esquema, actualización de la matriz de compatibilidad (§11.5) | 4 h hábiles | 2 días hábiles |
+| **R0 — Emergencia** | hotfix de incidente activo (§9.5) | 1 aprobador oficial, **antes** del merge (§13.3) | registro del incidente y revisión formal posterior obligatoria | inmediata | inmediata |
 
 Un PR **DEBE** llevar la etiqueta de su nivel. El CI **DEBE** escalar automáticamente a R3 cuando detecte cambios en rutas sensibles (`contracts/`, `migrations/`, `auth/`, `payments/`, IaC) o cuando el diff de contrato encuentre un breaking, sin importar la etiqueta que puso el autor.
+
+**Plazos de respuesta (OBLIGATORIOS).** Las horas y los días son hábiles. Valen para todo PR, en todos los niveles:
+
+1. **Primera respuesta.** El aprobador asignado revisa, aprueba o pide cambios dentro de 4 horas hábiles (R0: de inmediato).
+2. **Decisión.** El PR se aprueba o se devuelve con cambios dentro de 1 día hábil. En R3 el plazo es de 2 días hábiles, porque exige 2 aprobadores, ADR y revisión de seguridad.
+3. **Reasignación.** Si pasan 8 horas hábiles sin primera respuesta (R0 aparte), el PR se reasigna a otro aprobador disponible.
+4. **El reloj corre solo con el PR listo para aprobar:** checks en verde (§13.2) y sin cambios pedidos pendientes de atender. Si un check falla o el aprobador pidió cambios, el PR queda esperando al autor y el plazo no cuenta; vuelve a correr cuando el PR está listo de nuevo.
 
 ### 13.2 Requisitos del pull request
 
@@ -1470,7 +1478,7 @@ Un PR **NO DEBE** entrar a revisión si no cumple:
 - [ ] Ticket enlazado.
 - [ ] Si es `semver:major`: enlace al ADR y a la guía de migración.
 
-### 13.3 Reglas de conducta de la revisión
+### 13.3 Reglas de conducta de la revisión y rol de aprobador
 
 1. **PROHIBIDO** aprobar el propio PR o mergear sin aprobación, incluso siendo el autor más senior.
 2. Las observaciones se clasifican explícitamente para que el autor sepa qué es bloqueante:
@@ -1483,6 +1491,14 @@ Un PR **NO DEBE** entrar a revisión si no cumple:
 5. Un PR con más de 3 rondas de ida y vuelta **DEBERÍA** pasar a conversación sincrónica.
 6. Aprobar implica corresponsabilidad sobre lo que salga a producción.
 7. **PROHIBIDO** el "sello" (`LGTM` sin haber abierto los archivos). Es la causa más común de breaking changes no detectados.
+
+Rol de aprobador (**OBLIGATORIO**). Las reglas 8 a 12 rigen en todos los repositorios no archivados de la organización. Hasta que el ruleset de organización de aprobación esté activo (`COMMIT-2026-001`), se cumplen por proceso y no por bloqueo técnico:
+
+8. **Los aprobadores oficiales son tres:** `rodrigozalpich`, `JJARAMILLOTP` y `controlVersionesGRfacil` (cuenta de uso exclusivo de César Villegas). La lista vigente es la del equipo `aprobadores`. Solo ellos revisan formalmente, aprueban o piden cambios, e integran los PR hacia `main` y `develop`; la excepción es el suplente habilitado, que aprueba (regla 10). Los equipos `aprobadores` y `suplentes` son los únicos responsables de código (`CODEOWNERS`, plantilla en `templates/CODEOWNERS`).
+9. **Los desarrolladores abren PR y atienden comentarios.** Pueden opinar en los PR de otros, pero su aprobación no cuenta ni es requisito para integrar.
+10. **Los suplentes aprueban y NO integran.** Si faltan dos de los tres aprobadores, el aprobador presente puede habilitar como suplente a un desarrollador del mismo equipo de dominio del PR, nunca a su autor: lo agrega al equipo `suplentes` a pedido del autor, que abre el formulario «Solicitud de suplente» de este repositorio. El aprobador que lo habilitó lo retira del equipo al final del día y cierra la solicitud. El equipo `suplentes` ve los PR de toda la organización, así que el alcance de dominio lo controla el proceso: el aprobador verifica al integrar que el suplente aprobó solo un PR de su equipo. En R3 el suplente cuenta como uno de los dos aprobadores. La integración la hace siempre un aprobador presente.
+11. **PROHIBIDO el auto-merge.** `allow_auto_merge` queda en `false` en todos los repositorios y se mantiene así desde la infraestructura como código. Integrar es desplegar (hoy, en los repositorios con pipeline de despliegue, `develop` publica en el ambiente de desarrollo y `main` en QA), y la integración automática publicaría sin nadie presente; además, GitHub solo la configura por repositorio, no por rama. El aprobador revisa, aprueba e integra en el mismo momento; por eso un PR entra a revisión solo con los checks en verde (§13.2).
+12. **No hay bypass de emergencia.** Se asume que los tres aprobadores nunca faltan el mismo día, y con dos ausentes la continuidad la cubren los suplentes (regla 10). Ningún nivel de revisión, R0 incluido, permite integrar sin la aprobación de un aprobador oficial o de un suplente habilitado.
 
 ### 13.4 Checklist del revisor
 
@@ -1606,7 +1622,7 @@ Indicadores **DEBERÍAN** medirse y publicarse:
 |---|---|
 | Hotfixes / total de releases | < 10 % |
 | Breaking changes detectados en PR vs. en release | > 90 % en PR |
-| Tiempo desde PR abierto a primera revisión | < 8 h laborales |
+| Tiempo desde PR abierto a primera revisión | < 4 h hábiles (§13.1) |
 | Releases con rollback | < 5 % |
 | Deprecaciones retiradas dentro de su ventana | > 90 % |
 | Repos con `CONTRACT.md` vigente | 100 % |
@@ -1722,13 +1738,18 @@ Editar la versión a mano en `package.json` está **PROHIBIDO** en ramas protegi
 | Rol | Responsabilidad |
 |---|---|
 | **Version Owner** (uno por producto) | dueño del `CONTRACT.md`; resuelve discusiones de clasificación; decide Go/No-Go; autoriza mayores y deprecaciones |
-| **Tech Lead del módulo** | asegura que la etiqueta `semver:*` sea correcta en cada PR; aprueba R2 y participa en R3 |
+| **Tech Lead del módulo** | asegura que la etiqueta `semver:*` sea correcta en cada PR; participa en la revisión de R2 y R3 (la aprobación del PR la da un aprobador oficial, §13.3) |
 | **Release Manager** (puede rotar) | ejecuta el procedimiento de release y las verificaciones del §14.2 |
 | **Autor del cambio** | propone la clasificación, escribe el CHANGELOG, la guía de migración y el plan de rollback |
-| **Revisor** | aplica el checklist del §13.4; corresponsable del resultado |
+| **Revisor** | aplica el checklist del §13.4; corresponsable del resultado. En la práctica es un aprobador oficial (§13.3) |
 | **QA** | valida el `-rc`, incluida la compatibilidad hacia atrás |
 | **Seguridad** | obligatorio en R3 y en releases de seguridad |
 | **Soporte / Cuentas** | comunica deprecaciones y mayores a los consumidores externos |
+| **Aprobador oficial** (tres) | revisa, aprueba o pide cambios e integra todo PR hacia `main` y `develop`; responde dentro de los plazos del §13.1; habilita y retira suplentes (§13.3) |
+| **Suplente** | aprueba PR de su equipo de dominio mientras está habilitado (faltan dos de tres aprobadores); no integra; el aprobador que lo habilitó lo retira al final del día (§13.3) |
+| **Desarrollador** | abre PR y atiende comentarios; su aprobación no cuenta ni es requisito para integrar (§13.3) |
+
+Los roles de **aprobador oficial**, **suplente** y **desarrollador** están activos en toda la organización, aunque el resto de esta tabla esté parcialmente inactiva (§0.5). En cualquier PR, la aprobación (la «A» de §17.2) la da un aprobador oficial o un suplente habilitado (§13.3).
 
 ### 17.2 RACI abreviado
 
@@ -1922,6 +1943,11 @@ Reglas del CHANGELOG:
 ### Anexo D — Plantilla de pull request
 
 ```markdown
+<!-- Aprueban e integran solo los aprobadores oficiales (equipo `aprobadores`, ENG-STD-001 §13.3).
+Marcar el PR como listo para revisión cuando los checks estén en verde (un borrador no se asigna):
+el aprobador se asigna solo, no hace falta pedir revisor. Plazos: primera respuesta en 4 horas
+hábiles y decisión en 1 día hábil (R3: 2 días hábiles). -->
+
 ## Qué cambia
 <descripción en una o dos frases, orientada al comportamiento>
 
@@ -1958,6 +1984,7 @@ honesto del §4.3>
 - [ ] Guía de migración y ADR si es semver:major
 - [ ] Sin secretos ni datos personales en código ni logs
 - [ ] Un solo propósito en este PR
+- [ ] Checks en verde y PR marcado como listo para revisión (no borrador)
 ```
 
 ### Anexo E — Checklist de release (imprimible)
@@ -2139,5 +2166,6 @@ Solo si es un `-rc.N` construido desde `release/*`. Un build `-dev.*` de una ram
 | 1.2.0 | 2026-08-28 | Cesar Villegas | Se agrega §12.7 (ramas divergentes de larga vida: prevención, semáforo de divergencia, política de archivado y procedimiento de rescate). Nuevos controles en §16.3, revisión de inventario en §14.3, entradas de glosario y FAQ. |
 | 1.3.0 | 2026-08-28 | Cesar Villegas | Se agrega §0 (cómo usar el documento): las 12 reglas de práctica diaria, índice por situación, niveles de cumplimiento por repositorio y tabla de reglas con condición de activación. Se marcan como inactivas o parcialmente inactivas §9.6, §11.6, §11.8, §14.1, §15.1, §15.2, §17.1 y §17.2. |
 | 1.4.0 | 2026-11-04 | Rodrigo Zaldívar | Se agrega la precondición del hotfix (§9.5) y se alinean §9.5, §12.2 y el Anexo E con el merge por squash que impone el ruleset de la organización. Se agrega la regla de nombre de tag (§12.4). Se agregan §12.6.8 (despliegue manual controlado, transitorio) y §12.6.9 (front-ends con configuración incorporada al compilar), y se marca como parcialmente inactiva la regla 4 de §12.6.2 en §0.5. Nuevos controles en §16.3, revisión trimestral en §14.3, entradas en el índice de §0.3 y en la FAQ. Motivo: EXC-2026-013 dejó dicho que sin pipeline cada despliegue volvería a incumplir §12.6.2 regla 4 y que no convenía acumular una excepción por despliegue (§0.1, §17.3). |
+| 1.5.0 | 2026-11-09 | Rodrigo Zaldívar | Modelo de aprobadores oficiales de PR. §13.1: primera respuesta en 4 horas hábiles y decisión en 1 día hábil (2 días hábiles en R3), el reloj corre solo con el PR listo para aprobar y se reasigna a las 8 horas hábiles sin primera respuesta. §13.3: rol de aprobador (tres aprobadores oficiales, suplentes que aprueban y no integran), prohibición de auto-merge y ausencia de bypass de emergencia. §17.1: roles de aprobador oficial, suplente y desarrollador. En R0 y en §9.5 la aprobación pasa a ser previa al merge. Ajustes en §0.3, §14.3 y Anexo D. Motivo: hoy cualquier desarrollador del dominio aprueba e integra, e integrar despliega; el `CODEOWNERS` único se despliega bajo EXC-2026-015. |
 
 **Próxima revisión programada:** trimestral, junto con la auditoría de cumplimiento del §14.3.
