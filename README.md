@@ -5,14 +5,15 @@ comunitaria que el resto de los repositorios hereda, las plantillas del estánda
 workflows reutilizables.
 
 La norma que gobierna todo esto es **ENG-STD-001 — Estándar de Versionado, Releases y
-Revisiones**, v1.4.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs/ENG-STD-001.md).
+Revisiones**, v1.5.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs/ENG-STD-001.md).
 
 ## Qué hay acá
 
 | Ruta | Qué es | Se hereda |
 |---|---|---|
 | `.github/PULL_REQUEST_TEMPLATE.md` | Plantilla de PR (Anexo D) | Sí, a todos los repos privados del org |
-| `CONTRIBUTING.md` | Reglas de ramas y flujo de trabajo (sección 12.1) | Sí |
+| `.github/ISSUE_TEMPLATE/solicitud-suplente.yml` | Formulario «Solicitud de suplente» (sección 13.3) | Sí, en los repos sin formularios propios; la solicitud se abre en `.github` |
+| `CONTRIBUTING.md` | Reglas de ramas, flujo de trabajo y aprobación (secciones 12.1 y 13.3) | Sí |
 | `.github/workflows/conventional-commits.yml` | Workflow reutilizable que valida la sección 7 | No, se invoca |
 | `.github/workflows/pr-checks.yml` | Gobierno del PR: título, `semver:*`, CHANGELOG, rama, tamaño, secretos | No, se invoca |
 | `.github/workflows/ci-dotnet.yml`, `ci-node.yml`, `ci-python.yml` | Calidad por stack (sección 13.5) | No, se invoca |
@@ -22,6 +23,7 @@ Revisiones**, v1.4.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs
 | `docs/ci/` | Guía de adopción de CI/CD | — |
 | `templates/CONTRACT.md` | Plantilla de contrato público (Anexo B) | No, se copia |
 | `templates/CHANGELOG.md` | Plantilla de changelog (Anexo C) | No, se copia |
+| `templates/CODEOWNERS` | Archivo de responsables único: `aprobadores` y `suplentes` (sección 13.3). GitHub no lo hereda: se copia a `.github/CODEOWNERS` de cada repo | No, se copia |
 | `templates/commitlint.config.js` | Config opcional, solo para repos con Node | No, se copia |
 | `templates/DESPLIEGUE-MANUAL.md` | Registro de despliegue manual, para el Release del tag (sección 12.6.8) | No, se copia |
 | `templates/Dockerfile.iis-api`, `Dockerfile.iis-spa` | Artefacto `FROM scratch` para `deploy-iis.yml` | No, se copia |
