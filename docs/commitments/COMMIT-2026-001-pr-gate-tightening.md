@@ -38,3 +38,20 @@ Debe devolver `1`.
 **5. Qué pasa si la fecha llega sin cumplirse.** Se registra una excepción nueva de la sección
 17.3 que documente la postergación, con motivo y nueva fecha. El compromiso no vence en
 silencio.
+
+**6. Actualización del 2026-11-09 (modelo de aprobadores oficiales).** El conteo de 1
+aprobación se exige dentro del modelo de ENG-STD-001 v1.5.0 (sección 13.3): la aprobación de
+un aprobador oficial o de un suplente, con revisión de code owner y aprobación del último push,
+sobre `main` y `develop` de todos los repositorios, `.github` y `rfacil-platform` incluidos.
+Ese conteo **rige cuando el ruleset de organización de aprobación esté activo**. Hasta
+entonces el contador sigue en `0` y este compromiso sigue pendiente. Dos cambios sobre el
+texto original:
+
+1. La condición previa 2 (brechas de aprobador de los dominios con una sola persona que
+   conoce el código) queda cubierta por el modelo cuando esté activo: tres aprobadores
+   oficiales aprueban todos los dominios.
+2. La verificación del punto 4 se hace sobre el ruleset que quede activo para esta regla. Si
+   no es el `21948964`, se consulta el ruleset que lo reemplace.
+
+La condición previa 1 (el caso de `.github`, `EXC-2026-005`) sigue en pie: se cierra cuando el
+ruleset de aprobación incluya a `.github`. La fecha límite (2026-12-01) no cambia.

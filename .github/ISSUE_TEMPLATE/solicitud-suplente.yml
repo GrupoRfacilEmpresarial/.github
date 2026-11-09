@@ -1,0 +1,67 @@
+name: Solicitud de suplente
+description: Registrar la habilitación de un suplente cuando faltan dos de los tres aprobadores oficiales.
+title: "Solicitud de suplente: "
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Este formulario se usa solo cuando **faltan dos de los tres aprobadores oficiales** (ENG-STD-001, sección 13.3).
+
+        - El suplente aprueba, pero no integra: la integración la hace siempre un aprobador presente.
+        - El suplente debe ser del mismo equipo de dominio que el PR y no puede ser su autor.
+        - El equipo `suplentes` ve los PR de toda la organización. El alcance de dominio lo controla el proceso: el aprobador verifica al integrar que el suplente aprobó solo un PR de su equipo.
+        - La suplencia termina **al final del día**: el aprobador que habilitó al suplente lo retira del equipo y cierra la solicitud ese mismo día.
+        - Un aprobador presente atiende la solicitud y deja constancia de su autorización en un comentario.
+  - type: input
+    id: pr
+    attributes:
+      label: Enlace del PR
+      description: Dirección del pull request que necesita al suplente.
+      placeholder: https://github.com/GrupoRfacilEmpresarial/repositorio/pull/123
+    validations:
+      required: true
+  - type: dropdown
+    id: equipo
+    attributes:
+      label: Equipo de dominio
+      description: Equipo dueño del repositorio del PR.
+      options:
+        - fiscal-radar
+        - autofacturacion
+        - proveedores
+        - gastos-multiva
+        - portal-multiva
+        - identidad-plataforma
+        - ui-design-system
+    validations:
+      required: true
+  - type: input
+    id: suplente
+    attributes:
+      label: Login de GitHub del suplente propuesto
+      description: Un desarrollador del mismo equipo de dominio, distinto del autor del PR.
+      placeholder: usuario-github
+    validations:
+      required: true
+  - type: textarea
+    id: motivo
+    attributes:
+      label: Motivo
+      description: Qué aprobadores faltan y por qué no pueden atender el PR.
+    validations:
+      required: true
+  - type: input
+    id: fecha
+    attributes:
+      label: Fecha de la suplencia
+      description: Día en que el suplente queda habilitado (AAAA-MM-DD). La suplencia termina al final de ese día.
+      placeholder: 2026-11-09
+    validations:
+      required: true
+  - type: checkboxes
+    id: confirmacion
+    attributes:
+      label: Confirmación
+      options:
+        - label: Faltan dos de los tres aprobadores oficiales y el suplente propuesto no es el autor del PR.
+          required: true
