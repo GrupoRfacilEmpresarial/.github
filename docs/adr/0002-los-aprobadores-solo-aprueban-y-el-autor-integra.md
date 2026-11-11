@@ -2,7 +2,7 @@
 
 | Campo | Valor |
 |---|---|
-| Estado | Propuesto (pasa a Aceptado cuando pase la verificación con una cuenta de desarrollador) |
+| Estado | Aceptado el 2026-11-11, tras la verificación con un desarrollador real (`NewAdminAutoFacBack#356`); el punto 3 de la verificación queda como seguimiento |
 | Fecha | 2026-11-11 |
 | Autor | `rodrigozalpich` |
 | Ticket | sin ticket |
@@ -69,9 +69,9 @@ revisión se repite (regla 9).
 
 ## Transición
 
-Hasta el apply de `rfacil-platform#175`, `restringir-actualizaciones` sigue activo: solo los aprobadores pueden integrar,
-con el tilde «bypass rules». La plataforma es entonces más estricta que este ADR, no menos. El apply se hace después de
-que este cambio esté fusionado.
+El apply de `rfacil-platform#175` se hizo el 2026-11-11, después de fusionar este cambio: desde entonces
+`restringir-actualizaciones` está deshabilitado y la plataforma ya no limita quién integra. Antes del apply, solo los
+aprobadores podían integrar, con el tilde «bypass rules»: la plataforma era más estricta que este ADR, no menos.
 
 ## Consecuencias
 
@@ -94,7 +94,14 @@ fuera de `aprobadores` y `suplentes`):
 4. Un push posterior a la aprobación exige una aprobación nueva.
 5. El push directo se rechaza.
 
-Los resultados se cargan en la tabla de verificación del repositorio `eng-metrics`.
+**Resultado (2026-11-11).** Se verificó con `EmmanuelRocha-Rfacil` en `NewAdminAutoFacBack#356`, un PR solo de
+documentación, sin CI ni despliegue. Los puntos 1, 2, 4 y 5 pasaron: el autor fusionó con una rule-suite en `pass` (no
+`bypass`); el PR siguió bloqueado sin aprobación oficial; un push posterior dejó obsoletas las aprobaciones previas; y el
+push directo a `develop` fue rechazado con una rule-suite en `fail`. El punto 3 quedó incompleto: el otro revisor solo
+tenía lectura, y esa aprobación no cuenta en ningún modelo. Se repite con un desarrollador con escritura.
+
+Los resultados y sus evidencias están en la tabla de verificación del repositorio `eng-metrics`
+(`docs/pr-approvers-verification.md`, PR 3).
 
 ## Reversión
 
