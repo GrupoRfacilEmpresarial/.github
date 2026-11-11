@@ -5,7 +5,7 @@ comunitaria que el resto de los repositorios hereda, las plantillas del estánda
 workflows reutilizables.
 
 La norma que gobierna todo esto es **ENG-STD-001 — Estándar de Versionado, Releases y
-Revisiones**, v1.5.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs/ENG-STD-001.md).
+Revisiones**, v1.6.0. Su copia autoritativa vive en [`docs/ENG-STD-001.md`](docs/ENG-STD-001.md).
 
 ## Qué hay acá
 

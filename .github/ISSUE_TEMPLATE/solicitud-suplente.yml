@@ -7,9 +7,9 @@ body:
       value: |
         Este formulario se usa solo cuando **faltan dos de los tres aprobadores oficiales** (ENG-STD-001, sección 13.3).
 
-        - El suplente aprueba, pero no integra: la integración la hace siempre un aprobador presente.
+        - El suplente aprueba, pero no integra: la integración la hace siempre el autor del PR.
         - El suplente debe ser del mismo equipo de dominio que el PR y no puede ser su autor.
-        - El equipo `suplentes` ve los PR de toda la organización. El alcance de dominio lo controla el proceso: el aprobador verifica al integrar que el suplente aprobó solo un PR de su equipo.
+        - El equipo `suplentes` ve los PR de toda la organización. El alcance de dominio lo controla el proceso: al retirar al suplente, el aprobador que lo habilitó verifica que el suplente aprobó solo PR de su equipo.
         - La suplencia termina **al final del día**: el aprobador que habilitó al suplente lo retira del equipo y cierra la solicitud ese mismo día.
         - Un aprobador presente atiende la solicitud y deja constancia de su autorización en un comentario.
   - type: input

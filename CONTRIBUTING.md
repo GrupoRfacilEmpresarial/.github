@@ -1,6 +1,6 @@
 # Cómo se trabaja en los repositorios de Rfacil
 
-Este documento publica las reglas de ramas y de aprobación de **ENG-STD-001 v1.5.0, secciones 12.1 y 13**. No inventa
+Este documento publica las reglas de ramas y de aprobación de **ENG-STD-001 v1.6.0, secciones 12.1 y 13**. No inventa
 nada: la norma completa está en [`docs/ENG-STD-001.md`](docs/ENG-STD-001.md). Acá está lo que
 necesitás tener a mano todos los días.
 
@@ -39,13 +39,15 @@ gh pr create --base develop
 
 ## Quién aprueba y quién integra
 
-Desde ENG-STD-001 v1.5.0 (sección 13.3) revisan, aprueban e integran todo PR hacia `main` y
-`develop` **tres aprobadores oficiales**, agrupados en el equipo `aprobadores`. Los
-desarrolladores abren PR y atienden comentarios; pueden opinar en los PR de otros, pero su
-aprobación no cuenta ni es requisito para integrar.
+Desde ENG-STD-001 v1.6.0 (sección 13.3) revisan y aprueban todo PR hacia `main` y `develop`
+**tres aprobadores oficiales**, agrupados en el equipo `aprobadores`; no integran. Los
+desarrolladores abren PR, atienden comentarios e integran su propio PR una vez aprobado; pueden
+opinar en los PR de otros, pero su aprobación no cuenta ni es requisito para integrar.
 
 1. Marcar el PR como listo para revisión (no dejarlo en borrador) cuando todos los checks estén
-   en verde: un borrador no se asigna. El aprobador se asigna solo, no hace falta pedir revisor.
+   en verde: un borrador no se asigna. Actualizar la rama con su base antes de pedir revisión: un push
+   posterior a la aprobación la invalida y obliga a pedirla otra vez. El aprobador se asigna solo,
+   no hace falta pedir revisor.
 2. Si el PR queda esperando al autor (checks en rojo o cambios pedidos), corregir lo pendiente.
    El plazo del aprobador corre solo mientras el PR está listo para aprobar.
 3. Plazos: primera respuesta en 4 horas hábiles y decisión en 1 día hábil (R3: 2 días hábiles).
@@ -56,8 +58,17 @@ aprobación no cuenta ni es requisito para integrar.
    `.github` (formulario `solicitud-suplente`), con el enlace al PR y el login de un compañero
    del mismo equipo de dominio que no sea el autor. El suplente aprueba, pero no integra; el
    aprobador que lo habilitó lo retira del equipo al final del día.
-6. La integración la hace siempre un aprobador, a mano. El auto-merge está prohibido
-   (`allow_auto_merge` en `false`).
+6. Con la aprobación vigente y los checks en verde, el autor integra el PR a mano, y solo cuando
+   puede vigilar el despliegue, del que responde. Un push posterior invalida la aprobación y exige
+   una nueva. Los aprobadores no integran PR ajenos: si el autor es uno de los tres, otro aprueba
+   y el autor integra.
+7. En R3 el ruleset exige una aprobación, pero hacen falta dos: el aprobador que da la segunda
+   escribe «R3: segunda aprobación» en su revisión, y el autor no integra sin ese texto ni sin
+   que ambas aprobaciones estén vigentes sobre el último push.
+8. En R0 basta una aprobación vigente antes del merge: no hay bypass de emergencia, el autor
+   integra cuando la tiene y puede vigilar el despliegue, y la revisión formal posterior sigue
+   siendo obligatoria.
+9. El auto-merge está prohibido (`allow_auto_merge` en `false`): se integra siempre a mano.
 
 ## Ruta rápida: un hotfix
 
@@ -86,7 +97,8 @@ corre en producción, nunca de `develop`, y lleva solo el arreglo.
    ese cambio espera al siguiente release.
 4. **PR contra `main`**, nivel R0 y etiqueta `semver:patch`. Lo aprueba un aprobador oficial
    antes del merge: no hay aprobación posterior ni bypass de emergencia (sección 13.3). R0
-   tiene primera respuesta inmediata. Se mergea con squash, como todo.
+   tiene primera respuesta inmediata. Con esa aprobación el autor lo mergea de inmediato, con
+   squash, como todo.
 5. **Tag sobre `main`** (`v1.1.2`), con su Release en GitHub y el artefacto adjunto. Los tags `v*`
    solo los crea quien tiene permiso en el ruleset `release-tags-controlados`.
 6. **Despliegue** del artefacto de ese tag y smoke test (sección 14.2). Si el repo no tiene
@@ -161,7 +173,7 @@ vuelve a empaquetar código que ya se había reemplazado.
 |---|---|
 | Ramas permanentes por ambiente: `qa`, `demo`, `staging`, `uat` | Los ambientes ejecutan **versiones, no ramas**. La relación se resuelve promoviendo artefactos (sección 12.6) |
 | Push directo a `main` o `develop` | Regla 1 |
-| Activar la integración automática (auto-merge) de GitHub | Integrar es desplegar, y la integración la hace siempre un aprobador presente (sección 13.3) |
+| Activar la integración automática (auto-merge) de GitHub | Integrar es desplegar, y el autor integra a mano cuando puede vigilar el despliegue (sección 13.3) |
 | Dejar la rama viva después del merge | Regla 3 |
 | Escribir el número de versión a mano | Lo calcula la herramienta (sección 16.1) |
 | Editar a mano `.env.production` (o cualquier archivo versionado) antes de compilar para otro ambiente | El artefacto deja de ser reproducible desde el tag. La configuración por ambiente va fuera del artefacto o en archivos de ambiente versionados (sección 12.6.9) |

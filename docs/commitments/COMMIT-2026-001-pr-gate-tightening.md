@@ -74,3 +74,14 @@ en `0` hasta que se lo deshabilite. Estado: **cumplimiento parcial**. La condici
 caso de `.github`, `EXC-2026-005`) sigue en pie: el compromiso se da por cumplido cuando el
 ruleset de aprobación incluya a `.github` y a `rfacil-platform`. La fecha límite (2026-12-01) no
 cambia.
+
+**8. Actualización del 2026-11-11 (los aprobadores solo aprueban).** Con el modelo de
+ENG-STD-001 v1.6.0 el autor integra su PR y los aprobadores solo aprueban. El ruleset
+`restringir-actualizaciones` (id 27044017) se deshabilita (`enforcement: disabled`,
+`rfacil-platform#175`): una vez aplicado, ya no rige lo dicho sobre él en el punto 7 y ningún
+equipo queda limitado a actualizar `main` y `develop`. Desde el 2026-11-11 los dos rulesets de
+organización ya no excluyen ningún repositorio, `.github` y `rfacil-platform` incluidos: lo dicho
+sobre las exclusiones en el punto 7 está superado. La aprobación la sigue exigiendo
+`aprobacion-obligatoria` (id 27044019), sin cambios; la verificación del punto 4 es la del
+punto 7. El ADR-0002 registra la decisión. Esta actualización no cambia el estado del
+compromiso; su cierre se registra aparte.

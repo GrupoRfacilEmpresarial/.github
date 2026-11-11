@@ -1,4 +1,5 @@
-<!-- Aprueban e integran solo los aprobadores oficiales (equipo `aprobadores`, ENG-STD-001 §13.3).
+<!-- Aprueban solo los aprobadores oficiales (equipo `aprobadores`, ENG-STD-001 §13.3); integra el autor
+con la aprobación vigente y los checks en verde.
 Marcar el PR como listo para revisión cuando los checks estén en verde (un borrador no se asigna):
 el aprobador se asigna solo, no hace falta pedir revisor. Plazos: primera respuesta en 4 horas
 hábiles y decisión en 1 día hábil (R3: 2 días hábiles). -->
