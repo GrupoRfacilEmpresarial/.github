@@ -5,7 +5,7 @@
 | Fecha de registro | 2026-09-21 |
 | Dueño | Equipo `GrupoRfacilEmpresarial/release-managers` |
 | Fecha límite | 2026-12-01 |
-| Estado | Vigente, pendiente de cumplimiento |
+| Estado | Vigente, cumplimiento parcial (2026-11-11) |
 
 **1. Acción comprometida.** Subir `rules[pull_request].parameters.required_approving_review_count`
 de `0` a `1` en el ruleset de organización `pr-obligatorio` (id 21948964).
@@ -55,3 +55,22 @@ texto original:
 
 La condición previa 1 (el caso de `.github`, `EXC-2026-005`) sigue en pie: se cierra cuando el
 ruleset de aprobación incluya a `.github`. La fecha límite (2026-12-01) no cambia.
+
+**7. Actualización del 2026-11-11 (S4 aplicado).** El ruleset de organización de aprobación
+`aprobacion-obligatoria` (id 27044019) está activo desde el 2026-11-11 con
+`required_approving_review_count` en `1`, revisión de code owner, aprobación del último push y
+`require_extra_approval_for_unattributed_changes` en `true`, sobre `main` y `develop` de todos
+los repositorios no archivados salvo `.github` y `rfacil-platform`, que siguen excluidos hasta
+que se resuelva su caso (igual que en `pr-obligatorio`). Un ruleset separado,
+`restringir-actualizaciones` (id 27044017), deja que solo el equipo `aprobadores` actualice esas
+ramas, y solo por pull request. La verificación del punto 4 sobre el ruleset activo:
+
+```
+gh api orgs/GrupoRfacilEmpresarial/rulesets/27044019 --jq '[.rules[]|select(.type=="pull_request")][0].parameters.required_approving_review_count'
+```
+
+Devuelve `1`. El ruleset anterior, `pr-obligatorio` (id 21948964), sigue activo con el contador
+en `0` hasta que se lo deshabilite. Estado: **cumplimiento parcial**. La condición previa 1 (el
+caso de `.github`, `EXC-2026-005`) sigue en pie: el compromiso se da por cumplido cuando el
+ruleset de aprobación incluya a `.github` y a `rfacil-platform`. La fecha límite (2026-12-01) no
+cambia.
